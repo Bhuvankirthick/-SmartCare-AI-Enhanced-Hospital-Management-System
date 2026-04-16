@@ -5,10 +5,10 @@ from typing import Optional
 
 class PatientBase(BaseModel):
     name: str
-    date_of_birth: Optional[date] = None
+    dob: Optional[date] = None
     gender: Optional[str] = None
-    blood_type: Optional[str] = None
-    contact_number: Optional[str] = None
+    blood_group: Optional[str] = None
+    contact: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
     emergency_contact: Optional[str] = None

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Calendar, FileText, CreditCard, Pill } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import api from '../../api/client';
@@ -13,12 +14,21 @@ const NAV = [
 
 export default function PatientDashboard() {
   const { user } = useAuthStore();
-  const [tab, setTab] = useState<'book' | 'appointments' | 'bills' | 'prescriptions'>('book');
+  const [tab, setTab] = useState<'book' | 'appointments' | 'bills' | 'prescriptions' | 'history'>('book');
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const p = location.pathname.split('/').pop();
+    if (!p || p === 'patient') setTab('book');
+    else if (p === 'history') setTab('prescriptions');
+    else setTab(p as any);
+  }, [location.pathname]);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [bills, setBills] = useState<any[]>([]);
   const [treatments, setTreatments] = useState<any[]>([]);
-  const [booking, setBooking] = useState({ doctor_id: '', appointment_date: '', reason: '' });
+  const [booking, setBooking] = useState({ doctor_id: '', appointment_date: '', appointment_time: '' });
   const [bookMsg, setBookMsg] = useState('');
   const [bookErr, setBookErr] = useState('');
   const [saving, setSaving] = useState(false);
@@ -28,22 +38,23 @@ export default function PatientDashboard() {
     api.get('/doctors/').then(r => setDoctors(r.data));
     api.get('/appointments/').then(r => setAppointments(r.data));
     if (patientId) {
-      api.get(`/bills/patient/${patientId}`).then(r => setBills(r.data));
-      api.get(`/treatments/patient/${patientId}`).then(r => setTreatments(r.data));
+      api.get('/bills/').then(r => setBills(r.data));
+      api.get('/treatments/').then(r => setTreatments(r.data));
     }
   }, [patientId]);
 
   const handleBook = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setBookMsg(''); setBookErr('');
     try {
+      const dateObj = new Date(booking.appointment_date);
       await api.post('/appointments/', {
         patient_id: patientId,
         doctor_id: parseInt(booking.doctor_id),
-        appointment_date: new Date(booking.appointment_date).toISOString(),
-        reason: booking.reason,
+        appointment_date: dateObj.toISOString().split('T')[0],
+        appointment_time: booking.appointment_time,
       });
       setBookMsg('Appointment booked successfully!');
-      setBooking({ doctor_id: '', appointment_date: '', reason: '' });
+      setBooking({ doctor_id: '', appointment_date: '', appointment_time: '' });
       const res = await api.get('/appointments/');
       setAppointments(res.data);
     } catch (err: any) {
@@ -53,7 +64,7 @@ export default function PatientDashboard() {
 
   const upcomingAppts = appointments.filter(a => new Date(a.appointment_date) > new Date());
   const totalBilled = bills.reduce((s, b) => s + b.total_amount, 0);
-  const totalPaid = bills.filter(b => b.paid_status).reduce((s, b) => s + b.total_amount, 0);
+  const totalPaid = bills.filter(b => b.payment_status === 'Paid').reduce((s, b) => s + b.total_amount, 0);
 
   return (
     <DashboardLayout navItems={NAV} roleLabel="Patient Portal" roleColor="#10b981">
@@ -62,9 +73,9 @@ export default function PatientDashboard() {
           { id: 'book', label: 'Book Appointment' },
           { id: 'appointments', label: 'My Appointments' },
           { id: 'bills', label: 'My Bills' },
-          { id: 'prescriptions', label: 'Prescriptions' },
+          { id: 'prescriptions', label: 'Prescriptions & History' },
         ] as const).map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
+          <button key={t.id} onClick={() => navigate(t.id === 'book' ? '/patient' : `/patient/${t.id}`)}
             style={{ padding: '0.4rem 0.875rem', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
               background: tab === t.id ? 'linear-gradient(135deg, #10b981, #06b6d4)' : '#111827',
               color: tab === t.id ? 'white' : '#6b7280', transition: 'all 0.15s' }}>
@@ -115,16 +126,17 @@ export default function PatientDashboard() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Appointment Date & Time *</label>
-                <input className="input-field" type="datetime-local" required value={booking.appointment_date}
-                  min={new Date().toISOString().slice(0, 16)}
-                  onChange={e => setBooking({ ...booking, appointment_date: e.target.value })} />
-              </div>
-              <div>
-                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Reason for Visit</label>
-                <input className="input-field" value={booking.reason}
-                  onChange={e => setBooking({ ...booking, reason: e.target.value })} placeholder="Briefly describe your concern..." />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Date *</label>
+                  <input className="input-field" type="date" required value={booking.appointment_date}
+                    onChange={e => setBooking({ ...booking, appointment_date: e.target.value })} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Time *</label>
+                  <input className="input-field" type="time" required value={booking.appointment_time}
+                    onChange={e => setBooking({ ...booking, appointment_time: e.target.value })} />
+                </div>
               </div>
               <button type="submit" className="btn-primary" disabled={saving || !patientId}
                 style={{ alignSelf: 'flex-start', padding: '0.625rem 1.5rem' }}>
@@ -141,7 +153,7 @@ export default function PatientDashboard() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #1e2d45' }}>
-                  {['Doctor', 'Date & Time', 'Reason', 'Status'].map(h =>
+                  {['Doctor', 'Date', 'Time', 'Status'].map(h =>
                     <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: '#4b5563', fontWeight: 600 }}>{h}</th>)}
                 </tr>
               </thead>
@@ -150,9 +162,9 @@ export default function PatientDashboard() {
                   <tr key={a.appointment_id} className="table-row">
                     <td style={{ padding: '0.625rem 0.75rem', fontWeight: 600, color: '#e2e8f0', fontSize: '0.85rem' }}>{a.doctor_name}</td>
                     <td style={{ padding: '0.625rem 0.75rem', color: '#6b7280', fontSize: '0.8rem' }}>
-                      {new Date(a.appointment_date).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                      {new Date(a.appointment_date).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
                     </td>
-                    <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8', fontSize: '0.8rem' }}>{a.reason}</td>
+                    <td style={{ padding: '0.625rem 0.75rem', color: '#6b7280', fontSize: '0.8rem' }}>{a.appointment_time}</td>
                     <td style={{ padding: '0.625rem 0.75rem' }}>
                       <span className={`badge-${a.status === 'completed' ? 'success' : a.status === 'cancelled' ? 'danger' : 'info'}`}
                         style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 4, display: 'inline-block', fontWeight: 600 }}>
@@ -188,14 +200,14 @@ export default function PatientDashboard() {
                     <div style={{ fontWeight: 600, color: '#e2e8f0', marginBottom: '0.25rem' }}>Bill #{b.bill_id}</div>
                     <div style={{ fontSize: '0.75rem', color: '#4b5563' }}>{new Date(b.bill_date).toLocaleDateString('en-IN', { dateStyle: 'long' })}</div>
                     <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
-                      Consult: ₹{b.consultation_fee} · Treatment: ₹{b.treatment_cost} · Meds: ₹{b.medicine_cost}
+                      Status: {b.payment_status}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#e2e8f0' }}>₹{b.total_amount.toLocaleString('en-IN')}</div>
-                    <span className={b.paid_status ? 'badge-success' : 'badge-warning'}
+                    <span className={b.payment_status === 'Paid' ? 'badge-success' : 'badge-warning'}
                       style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 4, display: 'inline-block', fontWeight: 600, marginTop: '0.25rem' }}>
-                      {b.paid_status ? 'PAID' : 'PENDING'}
+                      {b.payment_status?.toUpperCase()}
                     </span>
                   </div>
                 </div>
@@ -212,27 +224,14 @@ export default function PatientDashboard() {
                 No prescription records found.
               </div>
             ) : treatments.map((t: any) => (
-              <div key={t.treatment_id} className="card" style={{ marginBottom: '0.75rem', borderLeft: '3px solid #6366f1' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <div style={{ fontWeight: 700, color: '#e2e8f0' }}>{t.diagnosis}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#4b5563' }}>
-                    {new Date(t.treatment_date).toLocaleDateString('en-IN', { dateStyle: 'medium' })} · Dr. {t.doctor_name}
-                  </div>
-                </div>
-                {t.description && <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '0.75rem', lineHeight: 1.6 }}>{t.description}</p>}
-                {t.medications?.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>PRESCRIBED MEDICATIONS</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                      {t.medications.map((m: any, i: number) => (
-                        <div key={i} className="badge-purple" style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem', borderRadius: 5 }}>
-                          {m.name} — {m.dose} for {m.duration}
-                        </div>
-                      ))}
+                  <div key={t.diagnosis_id} className="card" style={{ marginBottom: '0.75rem', borderLeft: '3px solid #6366f1' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#4b5563' }}>
+                        {new Date(t.diagnosis_date).toLocaleDateString('en-IN', { dateStyle: 'medium' })} · Dr. {t.doctor_name}
+                      </div>
                     </div>
+                    {t.diagnosis_details && <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '0.75rem', lineHeight: 1.6 }}>{t.diagnosis_details}</p>}
                   </div>
-                )}
-              </div>
             ))}
           </div>
         )}

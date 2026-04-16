@@ -5,13 +5,10 @@ from typing import Optional, Any
 class DoctorBase(BaseModel):
     name: str
     specialization: str
-    department: Optional[str] = None
-    contact_number: Optional[str] = None
+    contact: Optional[str] = None
     email: Optional[str] = None
     consultation_fee: Optional[float] = 500.0
-    schedule: Optional[Any] = None
     available: Optional[bool] = True
-    qualification: Optional[str] = None
 
 
 class DoctorCreate(DoctorBase):

@@ -1,29 +1,31 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+import psycopg2
+from psycopg2 import pool
+from psycopg2.extras import RealDictCursor
+import logging
 from .config import settings
 
-engine = create_engine(
-    settings.database_url,
-    connect_args={"check_same_thread": False},  # SQLite only
-    echo=False,
-)
+logger = logging.getLogger(__name__)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-class Base(DeclarativeBase):
-    pass
+# Create a connection pool to manage concurrent execution safely
+# We use ThreadedConnectionPool for thread safety in FastAPI
+try:
+    connection_pool = pool.ThreadedConnectionPool(
+        1, 40,
+        settings.database_url
+    )
+    if connection_pool:
+        print(f"Connected to PostgreSQL at {settings.database_url.split('@')[-1]}")
+except Exception as e:
+    print("Error connecting to database:", e)
+    connection_pool = None
 
 
 def get_db():
-    db = SessionLocal()
+    if connection_pool is None:
+        raise Exception("Database connection pool is not initialized. Check your DATABASE_URL.")
+    
+    conn = connection_pool.getconn()
     try:
-        yield db
+        yield conn
     finally:
-        db.close()
-
-
-def create_all_tables():
-    """Create all tables that don't exist yet."""
-    from .models import user, patient, doctor, appointment, treatment, bill, room, medicine  # noqa: F401
-    Base.metadata.create_all(bind=engine)
+        connection_pool.putconn(conn)

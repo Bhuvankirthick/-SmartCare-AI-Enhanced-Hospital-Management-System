@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Calendar, ClipboardList, FileText, User } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import api from '../../api/client';
@@ -14,12 +15,20 @@ const NAV = [
 export default function DoctorDashboard() {
   const { user } = useAuthStore();
   const [appointments, setAppointments] = useState<any[]>([]);
-  const [tab, setTab] = useState<'appointments' | 'ehr' | 'treatment'>('appointments');
+  const [tab, setTab] = useState<'appointments' | 'ehr' | 'treatment' | 'patients'>('appointments');
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const p = location.pathname.split('/').pop();
+    if (!p || p === 'doctor') setTab('appointments');
+    else setTab(p as any);
+  }, [location.pathname]);
   const [loading, setLoading] = useState(true);
   const [patients, setPatients] = useState<any[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
   const [patientTreatments, setPatientTreatments] = useState<any[]>([]);
-  const [txForm, setTxForm] = useState({ patient_id: '', diagnosis: '', description: '', medications: '', lab_results: '', cost: '' });
+  const [txForm, setTxForm] = useState({ patient_id: '', diagnosis_details: '' });
   const [saving, setSaving] = useState(false);
   const [txSuccess, setTxSuccess] = useState('');
 
@@ -40,18 +49,13 @@ export default function DoctorDashboard() {
   const handleTreatment = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setTxSuccess('');
     try {
-      const meds = txForm.medications ? txForm.medications.split(',').map(m => ({ name: m.trim(), dose: 'As prescribed', duration: '7 days' })) : [];
       await api.post('/treatments/', {
         patient_id: parseInt(txForm.patient_id),
         doctor_id: user?.linked_id,
-        diagnosis: txForm.diagnosis,
-        description: txForm.description,
-        medications: meds,
-        lab_results: txForm.lab_results,
-        cost: parseFloat(txForm.cost) || 0,
+        diagnosis_details: txForm.diagnosis_details,
       });
       setTxSuccess('Treatment record saved successfully!');
-      setTxForm({ patient_id: '', diagnosis: '', description: '', medications: '', lab_results: '', cost: '' });
+      setTxForm({ patient_id: '', diagnosis_details: '' });
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Error saving treatment');
     } finally { setSaving(false); }
@@ -68,8 +72,8 @@ export default function DoctorDashboard() {
   return (
     <DashboardLayout navItems={NAV} roleLabel="Doctor Portal" roleColor="#06b6d4">
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-        {(['appointments', 'ehr', 'treatment'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
+        {(['appointments', 'ehr', 'treatment', 'patients'] as const).map(t => (
+          <button key={t} onClick={() => navigate(t === 'appointments' ? '/doctor' : `/doctor/${t}`)}
             style={{ padding: '0.4rem 0.875rem', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, textTransform: 'capitalize',
               background: tab === t ? 'linear-gradient(135deg, #06b6d4, #6366f1)' : '#111827',
               color: tab === t ? 'white' : '#6b7280', transition: 'all 0.15s' }}>
@@ -144,7 +148,7 @@ export default function DoctorDashboard() {
                         background: selectedPatient?.patient_id === p.patient_id ? 'rgba(6,182,212,0.12)' : 'transparent',
                         border: `1px solid ${selectedPatient?.patient_id === p.patient_id ? 'rgba(6,182,212,0.3)' : 'transparent'}` }}>
                       <div style={{ fontWeight: 600, color: '#e2e8f0', fontSize: '0.85rem' }}>{p.name}</div>
-                      <div style={{ color: '#4b5563', fontSize: '0.72rem' }}>{p.gender} · {p.blood_type}</div>
+                      <div style={{ color: '#4b5563', fontSize: '0.72rem' }}>{p.gender} · {p.blood_group}</div>
                     </div>
                   ))}
                 </div>
@@ -156,11 +160,10 @@ export default function DoctorDashboard() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
                           {[
                             { label: 'Full Name', value: selectedPatient.name },
-                            { label: 'Date of Birth', value: selectedPatient.date_of_birth || 'N/A' },
-                            { label: 'Blood Type', value: selectedPatient.blood_type },
+                            { label: 'Date of Birth', value: selectedPatient.dob || 'N/A' },
+                            { label: 'Blood Type', value: selectedPatient.blood_group },
                             { label: 'Gender', value: selectedPatient.gender },
-                            { label: 'Contact', value: selectedPatient.contact_number },
-                            { label: 'Emergency Contact', value: selectedPatient.emergency_contact },
+                            { label: 'Contact', value: selectedPatient.contact },
                           ].map(f => (
                             <div key={f.label}>
                               <div style={{ fontSize: '0.7rem', color: '#4b5563', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{f.label}</div>
@@ -179,14 +182,13 @@ export default function DoctorDashboard() {
                         </div>
                       ) : (
                         patientTreatments.map((t: any) => (
-                          <div key={t.treatment_id} className="card" style={{ marginBottom: '0.75rem', borderLeft: '3px solid #06b6d4' }}>
+                          <div key={t.diagnosis_id} className="card" style={{ marginBottom: '0.75rem', borderLeft: '3px solid #06b6d4' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                              <div style={{ fontWeight: 700, color: '#e2e8f0', fontSize: '0.9rem' }}>{t.diagnosis}</div>
                               <div style={{ color: '#4b5563', fontSize: '0.75rem' }}>
-                                {new Date(t.treatment_date).toLocaleDateString('en-IN', { dateStyle: 'medium' })} · Dr. {t.doctor_name}
+                                {new Date(t.diagnosis_date).toLocaleDateString('en-IN', { dateStyle: 'medium' })} · Dr. {t.doctor_name}
                               </div>
                             </div>
-                            {t.description && <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '0.75rem', lineHeight: 1.6 }}>{t.description}</p>}
+                            {t.diagnosis_details && <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '0.75rem', lineHeight: 1.6 }}>{t.diagnosis_details}</p>}
                             {t.medications?.length > 0 && (
                               <div style={{ marginBottom: '0.5rem' }}>
                                 <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.4rem' }}>MEDICATIONS</div>
@@ -237,34 +239,10 @@ export default function DoctorDashboard() {
                     </select>
                   </div>
                   <div>
-                    <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Diagnosis *</label>
-                    <input className="input-field" required value={txForm.diagnosis}
-                      onChange={e => setTxForm({ ...txForm, diagnosis: e.target.value })} placeholder="e.g. Type 2 Diabetes Mellitus" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Clinical Notes</label>
-                    <textarea className="input-field" value={txForm.description}
-                      onChange={e => setTxForm({ ...txForm, description: e.target.value })}
-                      placeholder="Detailed clinical description, observations, and plan..." rows={4} style={{ resize: 'vertical' }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>
-                      Medications (comma-separated names)
-                    </label>
-                    <input className="input-field" value={txForm.medications}
-                      onChange={e => setTxForm({ ...txForm, medications: e.target.value })}
-                      placeholder="e.g. Metformin 500mg, Atorvastatin 10mg" />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Lab Results</label>
-                    <textarea className="input-field" value={txForm.lab_results}
-                      onChange={e => setTxForm({ ...txForm, lab_results: e.target.value })}
-                      placeholder="Blood panel, imaging, or other test results..." rows={2} style={{ resize: 'vertical' }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Treatment Cost (₹)</label>
-                    <input className="input-field" type="number" value={txForm.cost}
-                      onChange={e => setTxForm({ ...txForm, cost: e.target.value })} placeholder="0.00" />
+                    <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Diagnosis Details *</label>
+                    <textarea className="input-field" required value={txForm.diagnosis_details}
+                      onChange={e => setTxForm({ ...txForm, diagnosis_details: e.target.value })}
+                      placeholder="Detailed clinical findings and plan..." rows={6} style={{ resize: 'vertical' }} />
                   </div>
                   <button type="submit" className="btn-primary" disabled={saving} style={{ alignSelf: 'flex-start', padding: '0.625rem 1.5rem' }}>
                     {saving ? 'Saving...' : 'Save Treatment Record'}

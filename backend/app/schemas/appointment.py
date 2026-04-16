@@ -1,15 +1,13 @@
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import date, time
 from typing import Optional
 
 
 class AppointmentBase(BaseModel):
     patient_id: int
     doctor_id: int
-    appointment_date: datetime
-    reason: Optional[str] = None
-    notes: Optional[str] = None
-    room_id: Optional[int] = None
+    appointment_date: date
+    appointment_time: time
 
 
 class AppointmentCreate(AppointmentBase):
@@ -17,11 +15,9 @@ class AppointmentCreate(AppointmentBase):
 
 
 class AppointmentUpdate(BaseModel):
-    appointment_date: Optional[datetime] = None
+    appointment_date: Optional[date] = None
+    appointment_time: Optional[time] = None
     status: Optional[str] = None
-    reason: Optional[str] = None
-    notes: Optional[str] = None
-    room_id: Optional[int] = None
 
 
 class AppointmentOut(AppointmentBase):

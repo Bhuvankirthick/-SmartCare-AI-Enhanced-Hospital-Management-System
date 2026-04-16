@@ -1,41 +1,25 @@
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import date
 from typing import Optional, List, Any
-
-
-class MedicationItem(BaseModel):
-    name: str
-    dose: str
-    duration: str
-    instructions: Optional[str] = None
 
 
 class TreatmentBase(BaseModel):
     patient_id: int
     doctor_id: int
-    appointment_id: Optional[int] = None
-    diagnosis: str
-    description: Optional[str] = None
-    medications: Optional[List[Any]] = None
-    lab_results: Optional[str] = None
-    cost: Optional[float] = 0.0
+    diagnosis_details: str
 
 
 class TreatmentCreate(TreatmentBase):
-    pass
+    medications: Optional[List[Any]] = None
 
 
 class TreatmentUpdate(BaseModel):
-    diagnosis: Optional[str] = None
-    description: Optional[str] = None
-    medications: Optional[List[Any]] = None
-    lab_results: Optional[str] = None
-    cost: Optional[float] = None
+    diagnosis_details: Optional[str] = None
 
 
 class TreatmentOut(TreatmentBase):
-    treatment_id: int
-    treatment_date: datetime
+    diagnosis_id: int
+    diagnosis_date: date
     doctor_name: Optional[str] = None
 
     class Config:

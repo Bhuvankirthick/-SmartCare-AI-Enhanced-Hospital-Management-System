@@ -1,87 +1,140 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, status
+from psycopg2.extras import RealDictCursor
+import json
 from ..database import get_db
-from ..models.treatment import Treatment
-from ..models.user import User
 from ..schemas.treatment import TreatmentCreate, TreatmentUpdate, TreatmentOut
-from ..auth.rbac import require_doctor, get_current_user
+from ..schemas.auth import UserOut
+from ..auth.rbac import get_current_user, require_doctor
 
 router = APIRouter(prefix="/treatments", tags=["Treatments"])
 
-
-@router.get("/patient/{patient_id}", response_model=list[TreatmentOut])
-def get_patient_treatments(patient_id: int, db: Session = Depends(get_db),
-                           current_user: User = Depends(get_current_user)):
-    if current_user.role.value == "patient" and current_user.linked_id != patient_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    treatments = db.query(Treatment).filter(Treatment.patient_id == patient_id).all()
-    result = []
-    for t in treatments:
-        d = {
-            "treatment_id": t.treatment_id, "patient_id": t.patient_id,
-            "doctor_id": t.doctor_id, "appointment_id": t.appointment_id,
-            "diagnosis": t.diagnosis, "description": t.description,
-            "medications": t.medications, "lab_results": t.lab_results,
-            "cost": t.cost, "treatment_date": t.treatment_date,
-            "doctor_name": t.doctor.name if t.doctor else None,
-        }
-        result.append(d)
-    return result
-
-
 @router.get("/", response_model=list[TreatmentOut])
-def list_treatments(skip: int = 0, limit: int = 100, db: Session = Depends(get_db),
-                    current_user: User = Depends(get_current_user)):
-    query = db.query(Treatment)
-    if current_user.role.value == "doctor":
-        query = query.filter(Treatment.doctor_id == current_user.linked_id)
-    treatments = query.order_by(Treatment.treatment_date.desc()).offset(skip).limit(limit).all()
-    result = []
-    for t in treatments:
-        d = {
-            "treatment_id": t.treatment_id, "patient_id": t.patient_id,
-            "doctor_id": t.doctor_id, "appointment_id": t.appointment_id,
-            "diagnosis": t.diagnosis, "description": t.description,
-            "medications": t.medications, "lab_results": t.lab_results,
-            "cost": t.cost, "treatment_date": t.treatment_date,
-            "doctor_name": t.doctor.name if t.doctor else None,
-        }
-        result.append(d)
-    return result
+def list_treatments(skip: int = 0, limit: int = 100, patient_id: int = None,
+                    db = Depends(get_db), current_user: UserOut = Depends(get_current_user)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        base_query = """
+            SELECT t.*, d.name as doctor_name
+            FROM diagnoses t
+            LEFT JOIN doctors d ON t.doctor_id = d.doctor_id
+            WHERE 1=1
+        """
+        params = []
 
+        if current_user.role == "patient":
+            base_query += " AND t.patient_id = %s"
+            params.append(current_user.linked_id)
+        elif patient_id:
+            base_query += " AND t.patient_id = %s"
+            params.append(patient_id)
+
+        base_query += " ORDER BY t.diagnosis_date DESC OFFSET %s LIMIT %s"
+        params.extend([skip, limit])
+        
+        cursor.execute(base_query, params)
+        treatments = cursor.fetchall()
+        return [TreatmentOut(**t) for t in treatments]
+    finally:
+        cursor.close()
 
 @router.post("/", response_model=TreatmentOut, status_code=201)
-def create_treatment(body: TreatmentCreate, db: Session = Depends(get_db),
-                     _: User = Depends(require_doctor)):
-    treatment = Treatment(**body.model_dump())
-    db.add(treatment)
-    db.commit()
-    db.refresh(treatment)
-    return {
-        "treatment_id": treatment.treatment_id, "patient_id": treatment.patient_id,
-        "doctor_id": treatment.doctor_id, "appointment_id": treatment.appointment_id,
-        "diagnosis": treatment.diagnosis, "description": treatment.description,
-        "medications": treatment.medications, "lab_results": treatment.lab_results,
-        "cost": treatment.cost, "treatment_date": treatment.treatment_date,
-        "doctor_name": treatment.doctor.name if treatment.doctor else None,
-    }
+def create_treatment(body: TreatmentCreate, db = Depends(get_db), _: UserOut = Depends(require_doctor)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cursor.execute(
+            """
+            INSERT INTO diagnoses (patient_id, doctor_id, diagnosis_details)
+            VALUES (%s, %s, %s)
+            RETURNING diagnosis_id
+            """, 
+            (body.patient_id, body.doctor_id, body.diagnosis_details)
+        )
+        new_id = cursor.fetchone()['diagnosis_id']
+        db.commit()
 
+        cursor.execute("""
+            SELECT t.*, d.name as doctor_name
+            FROM diagnoses t
+            LEFT JOIN doctors d ON t.doctor_id = d.doctor_id
+            WHERE t.diagnosis_id = %s
+        """, (new_id,))
+        return TreatmentOut(**cursor.fetchone())
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()
 
-@router.put("/{treatment_id}", response_model=TreatmentOut)
-def update_treatment(treatment_id: int, body: TreatmentUpdate, db: Session = Depends(get_db),
-                     _: User = Depends(require_doctor)):
-    treatment = db.query(Treatment).filter(Treatment.treatment_id == treatment_id).first()
+@router.get("/{treatment_id}", response_model=TreatmentOut)
+def get_treatment(treatment_id: int, db = Depends(get_db), _: UserOut = Depends(get_current_user)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("""
+            SELECT t.*, d.name as doctor_name
+            FROM diagnoses t
+            LEFT JOIN doctors d ON t.doctor_id = d.doctor_id
+            WHERE t.diagnosis_id = %s LIMIT 1
+        """, (treatment_id,))
+        treatment = cursor.fetchone()
+    finally:
+        cursor.close()
+
     if not treatment:
         raise HTTPException(status_code=404, detail="Treatment not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(treatment, field, value)
-    db.commit()
-    db.refresh(treatment)
-    return {
-        "treatment_id": treatment.treatment_id, "patient_id": treatment.patient_id,
-        "doctor_id": treatment.doctor_id, "appointment_id": treatment.appointment_id,
-        "diagnosis": treatment.diagnosis, "description": treatment.description,
-        "medications": treatment.medications, "lab_results": treatment.lab_results,
-        "cost": treatment.cost, "treatment_date": treatment.treatment_date,
-        "doctor_name": treatment.doctor.name if treatment.doctor else None,
-    }
+    return TreatmentOut(**treatment)
+
+@router.put("/{treatment_id}", response_model=TreatmentOut)
+def update_treatment(treatment_id: int, body: TreatmentUpdate, db = Depends(get_db),
+                     _: UserOut = Depends(require_doctor)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT * FROM diagnoses WHERE diagnosis_id = %s LIMIT 1", (treatment_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Treatment not found")
+
+        data = body.model_dump(exclude_unset=True)
+        if not data:
+            cursor.execute("""
+                SELECT t.*, d.name as doctor_name
+                FROM diagnoses t
+                LEFT JOIN doctors d ON t.doctor_id = d.doctor_id
+                WHERE t.diagnosis_id = %s LIMIT 1
+            """, (treatment_id,))
+            return TreatmentOut(**cursor.fetchone())
+
+        set_clauses = ", ".join([f"{k} = %s" for k in data.keys()])
+        values = list(data.values()) + [treatment_id]
+        
+        cursor.execute(
+            f"UPDATE diagnoses SET {set_clauses} WHERE diagnosis_id = %s", 
+            values
+        )
+        db.commit()
+
+        cursor.execute("""
+            SELECT t.*, d.name as doctor_name
+            FROM diagnoses t
+            LEFT JOIN doctors d ON t.doctor_id = d.doctor_id
+            WHERE t.diagnosis_id = %s LIMIT 1
+        """, (treatment_id,))
+        return TreatmentOut(**cursor.fetchone())
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+@router.delete("/{treatment_id}", status_code=204)
+def delete_treatment(treatment_id: int, db = Depends(get_db), _: UserOut = Depends(require_doctor)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("DELETE FROM diagnoses WHERE diagnosis_id = %s RETURNING diagnosis_id", (treatment_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Diagnosis not found")
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()

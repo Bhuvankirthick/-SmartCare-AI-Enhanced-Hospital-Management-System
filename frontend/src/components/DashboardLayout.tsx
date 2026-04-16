@@ -1,4 +1,5 @@
-import { ReactNode, useState } from 'react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Activity, LogOut, Menu, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';

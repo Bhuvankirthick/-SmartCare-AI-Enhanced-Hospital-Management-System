@@ -1,149 +1,209 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from psycopg2.extras import RealDictCursor
+from datetime import datetime, date, time, timedelta
 from ..database import get_db
-from ..models.appointment import Appointment, AppointmentStatus
-from ..models.patient import Patient
-from ..models.doctor import Doctor
-from ..models.user import User
 from ..schemas.appointment import AppointmentCreate, AppointmentUpdate, AppointmentOut
+from ..schemas.auth import UserOut
 from ..auth.rbac import get_current_user, require_any_staff
 
 router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
 
-def _check_conflict(db: Session, doctor_id: int, appointment_date: datetime, exclude_id: int = None):
-    """Ensure no appointment overlaps within 30-minute window."""
-    window_start = appointment_date - timedelta(minutes=29)
-    window_end = appointment_date + timedelta(minutes=29)
-    query = db.query(Appointment).filter(
-        Appointment.doctor_id == doctor_id,
-        Appointment.appointment_date >= window_start,
-        Appointment.appointment_date <= window_end,
-        Appointment.status.notin_([AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW]),
-    )
+def _check_conflict(cursor, doctor_id: int, appointment_date: date, appointment_time: time, exclude_id: int = None):
+    """Ensure no appointment overlaps at the exact same time."""
+    query = """
+        SELECT appointment_id FROM appointments
+        WHERE doctor_id = %s
+        AND appointment_date = %s
+        AND appointment_time = %s
+        AND status NOT IN ('cancelled', 'no_show')
+    """
+    params = [doctor_id, appointment_date, appointment_time]
+    
     if exclude_id:
-        query = query.filter(Appointment.appointment_id != exclude_id)
-    return query.first()
+        query += " AND appointment_id != %s"
+        params.append(exclude_id)
+        
+    cursor.execute(query, params)
+    return cursor.fetchone()
 
 
 @router.get("/", response_model=list[AppointmentOut])
 def list_appointments(
     skip: int = 0, limit: int = 100,
-    patient_id: int = None, doctor_id: int = None, date: str = None,
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    patient_id: int = None, doctor_id: int = None, date_str: str = None,
+    db = Depends(get_db), current_user: UserOut = Depends(get_current_user)
 ):
-    query = db.query(Appointment)
-    # Restrict patients to their own
-    if current_user.role.value == "patient":
-        query = query.filter(Appointment.patient_id == current_user.linked_id)
-    elif current_user.role.value == "doctor":
-        query = query.filter(Appointment.doctor_id == current_user.linked_id)
-    else:
-        if patient_id:
-            query = query.filter(Appointment.patient_id == patient_id)
-        if doctor_id:
-            query = query.filter(Appointment.doctor_id == doctor_id)
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        base_query = """
+            SELECT a.*, p.name as patient_name, d.name as doctor_name
+            FROM appointments a
+            LEFT JOIN patients p ON a.patient_id = p.patient_id
+            LEFT JOIN doctors d ON a.doctor_id = d.doctor_id
+            WHERE 1=1
+        """
+        params = []
+        
+        if current_user.role == "patient":
+            base_query += " AND a.patient_id = %s"
+            params.append(current_user.linked_id)
+        elif current_user.role == "doctor":
+            base_query += " AND a.doctor_id = %s"
+            params.append(current_user.linked_id)
+        else:
+            if patient_id:
+                base_query += " AND a.patient_id = %s"
+                params.append(patient_id)
+            if doctor_id:
+                base_query += " AND a.doctor_id = %s"
+                params.append(doctor_id)
 
-    if date:
-        try:
-            d = datetime.strptime(date, "%Y-%m-%d")
-            query = query.filter(
-                Appointment.appointment_date >= d,
-                Appointment.appointment_date < d + timedelta(days=1)
-            )
-        except ValueError:
-            pass
-
-    appts = query.order_by(Appointment.appointment_date.desc()).offset(skip).limit(limit).all()
-    result = []
-    for a in appts:
-        appt_dict = {
-            "appointment_id": a.appointment_id,
-            "patient_id": a.patient_id,
-            "doctor_id": a.doctor_id,
-            "appointment_date": a.appointment_date,
-            "status": a.status.value,
-            "reason": a.reason,
-            "notes": a.notes,
-            "room_id": a.room_id,
-            "patient_name": a.patient.name if a.patient else None,
-            "doctor_name": a.doctor.name if a.doctor else None,
-        }
-        result.append(appt_dict)
-    return result
+        if date_str:
+            try:
+                base_query += " AND a.appointment_date = %s"
+                params.append(date_str)
+            except ValueError:
+                pass
+                
+        base_query += " ORDER BY a.appointment_date DESC, a.appointment_time DESC OFFSET %s LIMIT %s"
+        params.extend([skip, limit])
+        
+        cursor.execute(base_query, params)
+        appts = cursor.fetchall()
+        return [AppointmentOut(**a) for a in appts]
+    finally:
+        cursor.close()
 
 
 @router.post("/", response_model=AppointmentOut, status_code=201)
-def create_appointment(body: AppointmentCreate, db: Session = Depends(get_db),
-                       current_user: User = Depends(get_current_user)):
-    # Scheduling conflict check
-    conflict = _check_conflict(db, body.doctor_id, body.appointment_date)
-    if conflict:
-        raise HTTPException(status_code=409, detail="Doctor has a conflicting appointment at this time")
-
-    appt = Appointment(**body.model_dump())
-    db.add(appt)
-    db.commit()
-    db.refresh(appt)
-    appt_dict = {
-        "appointment_id": appt.appointment_id, "patient_id": appt.patient_id,
-        "doctor_id": appt.doctor_id, "appointment_date": appt.appointment_date,
-        "status": appt.status.value, "reason": appt.reason, "notes": appt.notes,
-        "room_id": appt.room_id,
-        "patient_name": appt.patient.name if appt.patient else None,
-        "doctor_name": appt.doctor.name if appt.doctor else None,
-    }
-    return appt_dict
-
-
-@router.get("/{appointment_id}", response_model=AppointmentOut)
-def get_appointment(appointment_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    appt = db.query(Appointment).filter(Appointment.appointment_id == appointment_id).first()
-    if not appt:
-        raise HTTPException(status_code=404, detail="Appointment not found")
-    return {
-        "appointment_id": appt.appointment_id, "patient_id": appt.patient_id,
-        "doctor_id": appt.doctor_id, "appointment_date": appt.appointment_date,
-        "status": appt.status.value, "reason": appt.reason, "notes": appt.notes, "room_id": appt.room_id,
-        "patient_name": appt.patient.name if appt.patient else None,
-        "doctor_name": appt.doctor.name if appt.doctor else None,
-    }
-
-
-@router.put("/{appointment_id}", response_model=AppointmentOut)
-def update_appointment(appointment_id: int, body: AppointmentUpdate, db: Session = Depends(get_db),
-                       _: User = Depends(get_current_user)):
-    appt = db.query(Appointment).filter(Appointment.appointment_id == appointment_id).first()
-    if not appt:
-        raise HTTPException(status_code=404, detail="Appointment not found")
-
-    if body.appointment_date and body.appointment_date != appt.appointment_date:
-        conflict = _check_conflict(db, appt.doctor_id, body.appointment_date, exclude_id=appointment_id)
+def create_appointment(body: AppointmentCreate, db = Depends(get_db),
+                       current_user: UserOut = Depends(get_current_user)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        # Scheduling conflict check
+        conflict = _check_conflict(cursor, body.doctor_id, body.appointment_date, body.appointment_time)
         if conflict:
             raise HTTPException(status_code=409, detail="Doctor has a conflicting appointment at this time")
 
-    for field, value in body.model_dump(exclude_unset=True).items():
-        if field == "status" and value:
-            setattr(appt, field, AppointmentStatus(value))
-        else:
-            setattr(appt, field, value)
-    db.commit()
-    db.refresh(appt)
-    return {
-        "appointment_id": appt.appointment_id, "patient_id": appt.patient_id,
-        "doctor_id": appt.doctor_id, "appointment_date": appt.appointment_date,
-        "status": appt.status.value, "reason": appt.reason, "notes": appt.notes, "room_id": appt.room_id,
-        "patient_name": appt.patient.name if appt.patient else None,
-        "doctor_name": appt.doctor.name if appt.doctor else None,
-    }
+        data = body.model_dump()
+        columns = list(data.keys())
+        values = list(data.values())
+        placeholders = ", ".join(["%s"] * len(columns))
+        cols_str = ", ".join(columns)
+
+        cursor.execute(
+            f"INSERT INTO appointments ({cols_str}) VALUES ({placeholders}) RETURNING appointment_id", 
+            values
+        )
+        new_id = cursor.fetchone()['appointment_id']
+        db.commit()
+        
+        # Fetch complete object with names
+        cursor.execute("""
+            SELECT a.*, p.name as patient_name, d.name as doctor_name
+            FROM appointments a
+            LEFT JOIN patients p ON a.patient_id = p.patient_id
+            LEFT JOIN doctors d ON a.doctor_id = d.doctor_id
+            WHERE a.appointment_id = %s
+        """, (new_id,))
+        return AppointmentOut(**cursor.fetchone())
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+
+@router.get("/{appointment_id}", response_model=AppointmentOut)
+def get_appointment(appointment_id: int, db = Depends(get_db), _: UserOut = Depends(get_current_user)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("""
+            SELECT a.*, p.name as patient_name, d.name as doctor_name
+            FROM appointments a
+            LEFT JOIN patients p ON a.patient_id = p.patient_id
+            LEFT JOIN doctors d ON a.doctor_id = d.doctor_id
+            WHERE a.appointment_id = %s LIMIT 1
+        """, (appointment_id,))
+        appt = cursor.fetchone()
+    finally:
+        cursor.close()
+
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+        
+    return AppointmentOut(**appt)
+
+
+@router.put("/{appointment_id}", response_model=AppointmentOut)
+def update_appointment(appointment_id: int, body: AppointmentUpdate, db = Depends(get_db),
+                       _: UserOut = Depends(get_current_user)):
+                       
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT * FROM appointments WHERE appointment_id = %s LIMIT 1", (appointment_id,))
+        appt = cursor.fetchone()
+        if not appt:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+
+        # Conflict check if date or time changed
+        new_date = body.appointment_date or appt['appointment_date']
+        new_time = body.appointment_time or appt['appointment_time']
+        if (body.appointment_date and body.appointment_date != appt['appointment_date']) or \
+           (body.appointment_time and body.appointment_time != appt['appointment_time']):
+            conflict = _check_conflict(cursor, appt['doctor_id'], new_date, new_time, exclude_id=appointment_id)
+            if conflict:
+                raise HTTPException(status_code=409, detail="Doctor has a conflicting appointment at this time")
+
+        data = body.model_dump(exclude_unset=True)
+        if not data:
+            cursor.execute("""
+                SELECT a.*, p.name as patient_name, d.name as doctor_name
+                FROM appointments a
+                LEFT JOIN patients p ON a.patient_id = p.patient_id
+                LEFT JOIN doctors d ON a.doctor_id = d.doctor_id
+                WHERE a.appointment_id = %s LIMIT 1
+            """, (appointment_id,))
+            return AppointmentOut(**cursor.fetchone())
+
+        set_clauses = ", ".join([f"{k} = %s" for k in data.keys()])
+        values = list(data.values()) + [appointment_id]
+        
+        cursor.execute(
+            f"UPDATE appointments SET {set_clauses} WHERE appointment_id = %s", 
+            values
+        )
+        db.commit()
+        
+        # Fetch updated with names
+        cursor.execute("""
+            SELECT a.*, p.name as patient_name, d.name as doctor_name
+            FROM appointments a
+            LEFT JOIN patients p ON a.patient_id = p.patient_id
+            LEFT JOIN doctors d ON a.doctor_id = d.doctor_id
+            WHERE a.appointment_id = %s LIMIT 1
+        """, (appointment_id,))
+        
+        return AppointmentOut(**cursor.fetchone())
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()
 
 
 @router.delete("/{appointment_id}", status_code=204)
-def delete_appointment(appointment_id: int, db: Session = Depends(get_db),
-                       _: User = Depends(require_any_staff)):
-    appt = db.query(Appointment).filter(Appointment.appointment_id == appointment_id).first()
-    if not appt:
-        raise HTTPException(status_code=404, detail="Appointment not found")
-    appt.status = AppointmentStatus.CANCELLED
-    db.commit()
+def delete_appointment(appointment_id: int, db = Depends(get_db),
+                       _: UserOut = Depends(require_any_staff)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("UPDATE appointments SET status = 'cancelled' WHERE appointment_id = %s RETURNING appointment_id", (appointment_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()

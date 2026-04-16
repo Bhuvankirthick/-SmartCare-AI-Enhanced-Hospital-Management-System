@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { CheckCircle, Calendar, Search, BedDouble } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import api from '../../api/client';
@@ -11,13 +12,21 @@ const NAV = [
 ];
 
 export default function ReceptionistDashboard() {
-  const [tab, setTab] = useState<'checkin' | 'schedule' | 'rooms'>('checkin');
+  const [tab, setTab] = useState<'checkin' | 'schedule' | 'rooms' | 'search'>('checkin');
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const p = location.pathname.split('/').pop();
+    if (!p || p === 'receptionist') setTab('checkin');
+    else setTab(p as any);
+  }, [location.pathname]);
   const [patients, setPatients] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [search, setSearch] = useState('');
-  const [booking, setBooking] = useState({ patient_id: '', doctor_id: '', appointment_date: '', reason: '' });
+  const [booking, setBooking] = useState({ patient_id: '', doctor_id: '', appointment_date: '', appointment_time: '' });
   const [bookMsg, setBookMsg] = useState('');
   const [bookErr, setBookErr] = useState('');
   const [saving, setSaving] = useState(false);
@@ -38,14 +47,15 @@ export default function ReceptionistDashboard() {
   const handleBook = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setBookMsg(''); setBookErr('');
     try {
+      const dateObj = new Date(booking.appointment_date);
       await api.post('/appointments/', {
         patient_id: parseInt(booking.patient_id),
         doctor_id: parseInt(booking.doctor_id),
-        appointment_date: new Date(booking.appointment_date).toISOString(),
-        reason: booking.reason,
+        appointment_date: dateObj.toISOString().split('T')[0],
+        appointment_time: booking.appointment_time,
       });
       setBookMsg('Appointment scheduled successfully!');
-      setBooking({ patient_id: '', doctor_id: '', appointment_date: '', reason: '' });
+      setBooking({ patient_id: '', doctor_id: '', appointment_date: '', appointment_time: '' });
       const res = await api.get('/appointments/?limit=50');
       setAppointments(res.data);
     } catch (err: any) {
@@ -60,21 +70,21 @@ export default function ReceptionistDashboard() {
   };
 
   const filteredPatients = patients.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) || p.email?.includes(search) || p.contact_number?.includes(search)
+    p.name.toLowerCase().includes(search.toLowerCase()) || p.email?.includes(search) || p.contact?.includes(search)
   );
 
-  const availableRooms = rooms.filter(r => r.status === 'available');
-  const occupiedRooms = rooms.filter(r => r.status === 'occupied');
+  const availableRooms = rooms.filter(r => r.availability_status?.toLowerCase() === 'available');
+  const occupiedRooms = rooms.filter(r => r.availability_status?.toLowerCase() === 'occupied');
 
   return (
     <DashboardLayout navItems={NAV} roleLabel="Receptionist" roleColor="#f59e0b">
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-        {(['checkin', 'schedule', 'rooms'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
+        {(['checkin', 'schedule', 'rooms', 'search'] as const).map(t => (
+          <button key={t} onClick={() => navigate(t === 'checkin' ? '/receptionist' : `/receptionist/${t}`)}
             style={{ padding: '0.4rem 0.875rem', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, textTransform: 'capitalize',
               background: tab === t ? 'linear-gradient(135deg, #f59e0b, #ef4444)' : '#111827',
               color: tab === t ? 'white' : '#6b7280', transition: 'all 0.15s' }}>
-            {t === 'checkin' ? 'Check-In & Today' : t === 'schedule' ? 'Schedule Appointment' : 'Room Management'}
+            {t === 'checkin' ? 'Check-In & Today' : t === 'schedule' ? 'Schedule Appointment' : t === 'rooms' ? 'Room Management' : 'Find Patient'}
           </button>
         ))}
       </div>
@@ -108,7 +118,7 @@ export default function ReceptionistDashboard() {
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
                         <div style={{ fontWeight: 600, color: '#e2e8f0', fontSize: '0.85rem' }}>{p.name}</div>
-                        <div style={{ fontSize: '0.72rem', color: '#4b5563' }}>{p.contact_number} · {p.blood_type}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#4b5563' }}>{p.contact} · {p.blood_group}</div>
                       </div>
                       <button onClick={() => setBooking({ ...booking, patient_id: String(p.patient_id) })}
                         style={{ fontSize: '0.72rem', color: '#f59e0b', background: 'none', border: '1px solid rgba(245,158,11,0.3)',
@@ -138,11 +148,10 @@ export default function ReceptionistDashboard() {
                     {todayAppts.map((a: any) => (
                       <tr key={a.appointment_id} className="table-row">
                         <td style={{ padding: '0.625rem 0.75rem', color: '#06b6d4', fontWeight: 600, fontSize: '0.8rem' }}>
-                          {new Date(a.appointment_date).toLocaleTimeString('en-IN', { timeStyle: 'short' })}
+                          {a.appointment_time}
                         </td>
                         <td style={{ padding: '0.625rem 0.75rem', fontWeight: 600, color: '#e2e8f0', fontSize: '0.85rem' }}>{a.patient_name}</td>
                         <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8', fontSize: '0.8rem' }}>{a.doctor_name}</td>
-                        <td style={{ padding: '0.625rem 0.75rem', color: '#6b7280', fontSize: '0.8rem' }}>{a.reason}</td>
                         <td style={{ padding: '0.625rem 0.75rem' }}>
                           <span className={`badge-${a.status === 'completed' ? 'success' : a.status === 'cancelled' ? 'danger' : 'info'}`}
                             style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 4, display: 'inline-block' }}>
@@ -186,15 +195,17 @@ export default function ReceptionistDashboard() {
                   {doctors.filter(d => d.available).map(d => <option key={d.doctor_id} value={d.doctor_id}>{d.name} · {d.specialization}</option>)}
                 </select>
               </div>
-              <div>
-                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Date & Time *</label>
-                <input className="input-field" type="datetime-local" required value={booking.appointment_date}
-                  min={new Date().toISOString().slice(0, 16)}
-                  onChange={e => setBooking({ ...booking, appointment_date: e.target.value })} />
-              </div>
-              <div>
-                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Reason</label>
-                <input className="input-field" value={booking.reason} onChange={e => setBooking({ ...booking, reason: e.target.value })} placeholder="Chief complaint..." />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Date *</label>
+                  <input className="input-field" type="date" required value={booking.appointment_date}
+                    onChange={e => setBooking({ ...booking, appointment_date: e.target.value })} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Time *</label>
+                  <input className="input-field" type="time" required value={booking.appointment_time}
+                    onChange={e => setBooking({ ...booking, appointment_time: e.target.value })} />
+                </div>
               </div>
               <button type="submit" className="btn-primary" disabled={saving} style={{ alignSelf: 'flex-start', padding: '0.625rem 1.5rem' }}>
                 {saving ? 'Scheduling...' : 'Schedule Appointment'}
@@ -220,22 +231,21 @@ export default function ReceptionistDashboard() {
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
-              {rooms.map((r: any) => (
-                <div key={r.room_id} className="card glass-hover"
-                  style={{ borderLeft: `3px solid ${r.status === 'available' ? '#10b981' : r.status === 'occupied' ? '#ef4444' : '#f59e0b'}` }}>
+              {rooms.map(r => (
+                <div key={r.room_id} className="card glass-hover">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
                     <div>
-                      <div style={{ fontWeight: 800, color: '#e2e8f0', fontSize: '1rem' }}>Room {r.room_number}</div>
-                      <div style={{ color: '#6b7280', fontSize: '0.75rem', textTransform: 'capitalize' }}>{r.room_type.replace('_', ' ')} · Floor {r.floor}</div>
+                      <div style={{ fontWeight: 800, color: '#e2e8f0', fontSize: '1rem' }}>Room #{r.room_id}</div>
+                      <div style={{ color: '#6b7280', fontSize: '0.75rem', textTransform: 'capitalize' }}>{r.room_type}</div>
                     </div>
-                    <span className={r.status === 'available' ? 'badge-success' : r.status === 'occupied' ? 'badge-danger' : 'badge-warning'}
+                    <span className={r.availability_status?.toLowerCase() === 'available' ? 'badge-success' : 'badge-danger'}
                       style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', borderRadius: 4, fontWeight: 600 }}>
-                      {r.status}
+                      {r.availability_status}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#4b5563', background: '#0a0f1e', borderRadius: 6, padding: '0.5rem 0.625rem' }}>
-                    <span>Occupancy: <b style={{ color: '#e2e8f0' }}>{r.current_occupancy}/{r.capacity}</b></span>
-                    <span style={{ color: '#10b981', fontWeight: 600 }}>₹{r.daily_rate}/day</span>
+                    <span>Capacity: <b style={{ color: '#e2e8f0' }}>{r.capacity}</b></span>
+                    <span style={{ color: '#10b981', fontWeight: 600 }}>₹{r.cost_per_day}/day</span>
                   </div>
                   <div style={{ marginTop: '0.625rem', height: 4, background: '#1e2d45', borderRadius: 2 }}>
                     <div style={{ height: '100%', borderRadius: 2, width: `${(r.current_occupancy / r.capacity) * 100}%`,

@@ -1,94 +1,147 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, status
+from psycopg2.extras import RealDictCursor
+import json
 from ..database import get_db
-from ..models.bill import Bill
-from ..models.appointment import Appointment
-from ..models.user import User
 from ..schemas.bill import BillCreate, BillUpdate, BillOut
-from ..auth.rbac import require_admin, get_current_user
+from ..schemas.auth import UserOut
+from ..auth.rbac import get_current_user, require_receptionist
 
 router = APIRouter(prefix="/bills", tags=["Billing"])
 
-
-def _compute_total(b: Bill) -> float:
-    return (b.consultation_fee or 0) + (b.treatment_cost or 0) + (b.room_cost or 0) + (b.medicine_cost or 0)
-
-
 @router.get("/", response_model=list[BillOut])
-def list_bills(skip: int = 0, limit: int = 100, db: Session = Depends(get_db),
-               current_user: User = Depends(get_current_user)):
-    query = db.query(Bill)
-    if current_user.role.value == "patient":
-        query = query.filter(Bill.patient_id == current_user.linked_id)
-    bills = query.order_by(Bill.bill_date.desc()).offset(skip).limit(limit).all()
-    result = []
-    for b in bills:
-        result.append({
-            "bill_id": b.bill_id, "patient_id": b.patient_id, "appointment_id": b.appointment_id,
-            "consultation_fee": b.consultation_fee, "treatment_cost": b.treatment_cost,
-            "room_cost": b.room_cost, "medicine_cost": b.medicine_cost,
-            "total_amount": b.total_amount, "paid_status": b.paid_status,
-            "payment_method": b.payment_method, "bill_date": b.bill_date, "items": b.items,
-            "patient_name": b.patient.name if b.patient else None,
-        })
-    return result
+def list_bills(skip: int = 0, limit: int = 100, patient_id: int = None,
+               db = Depends(get_db), current_user: UserOut = Depends(get_current_user)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        base_query = """
+            SELECT b.*, p.name as patient_name
+            FROM bills b
+            LEFT JOIN patients p ON b.patient_id = p.patient_id
+            WHERE 1=1
+        """
+        params = []
 
+        if current_user.role == "patient":
+            base_query += " AND b.patient_id = %s"
+            params.append(current_user.linked_id)
+        elif patient_id:
+            base_query += " AND b.patient_id = %s"
+            params.append(patient_id)
 
-@router.get("/patient/{patient_id}", response_model=list[BillOut])
-def get_patient_bills(patient_id: int, db: Session = Depends(get_db),
-                      current_user: User = Depends(get_current_user)):
-    if current_user.role.value == "patient" and current_user.linked_id != patient_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    bills = db.query(Bill).filter(Bill.patient_id == patient_id).all()
-    return [{
-        "bill_id": b.bill_id, "patient_id": b.patient_id, "appointment_id": b.appointment_id,
-        "consultation_fee": b.consultation_fee, "treatment_cost": b.treatment_cost,
-        "room_cost": b.room_cost, "medicine_cost": b.medicine_cost,
-        "total_amount": b.total_amount, "paid_status": b.paid_status,
-        "payment_method": b.payment_method, "bill_date": b.bill_date, "items": b.items,
-        "patient_name": b.patient.name if b.patient else None,
-    } for b in bills]
+        base_query += " ORDER BY b.bill_date DESC OFFSET %s LIMIT %s"
+        params.extend([skip, limit])
+
+        cursor.execute(base_query, params)
+        bills = cursor.fetchall()
+        return [BillOut(**b) for b in bills]
+    finally:
+        cursor.close()
 
 
 @router.post("/", response_model=BillOut, status_code=201)
-def create_bill(body: BillCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    # Auto-pull consultation fee from appointment's doctor if not provided
-    if body.appointment_id and not body.consultation_fee:
-        appt = db.query(Appointment).filter(Appointment.appointment_id == body.appointment_id).first()
-        if appt and appt.doctor:
-            body = body.model_copy(update={"consultation_fee": appt.doctor.consultation_fee})
+def create_bill(body: BillCreate, db = Depends(get_db), _: UserOut = Depends(require_receptionist)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    data = body.model_dump()
+    columns = list(data.keys())
+    values = list(data.values())
+    placeholders = ", ".join(["%s"] * len(columns))
+    cols_str = ", ".join(columns)
 
-    bill = Bill(**body.model_dump())
-    bill.total_amount = _compute_total(bill)
-    db.add(bill)
-    db.commit()
-    db.refresh(bill)
-    return {
-        "bill_id": bill.bill_id, "patient_id": bill.patient_id, "appointment_id": bill.appointment_id,
-        "consultation_fee": bill.consultation_fee, "treatment_cost": bill.treatment_cost,
-        "room_cost": bill.room_cost, "medicine_cost": bill.medicine_cost,
-        "total_amount": bill.total_amount, "paid_status": bill.paid_status,
-        "payment_method": bill.payment_method, "bill_date": bill.bill_date, "items": bill.items,
-        "patient_name": bill.patient.name if bill.patient else None,
-    }
+    try:
+        cursor.execute(
+            f"INSERT INTO bills ({cols_str}) VALUES ({placeholders}) RETURNING bill_id", 
+            values
+        )
+        new_id = cursor.fetchone()['bill_id']
+        db.commit()
 
+        cursor.execute("""
+            SELECT b.*, p.name as patient_name
+            FROM bills b
+            LEFT JOIN patients p ON b.patient_id = p.patient_id
+            WHERE b.bill_id = %s
+        """, (new_id,))
+        return BillOut(**cursor.fetchone())
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()
 
-@router.put("/{bill_id}/pay", response_model=BillOut)
-def mark_paid(bill_id: int, body: BillUpdate, db: Session = Depends(get_db),
-              _: User = Depends(require_admin)):
-    bill = db.query(Bill).filter(Bill.bill_id == bill_id).first()
+@router.get("/{bill_id}", response_model=BillOut)
+def get_bill(bill_id: int, db = Depends(get_db), current_user: UserOut = Depends(get_current_user)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("""
+            SELECT b.*, p.name as patient_name
+            FROM bills b
+            LEFT JOIN patients p ON b.patient_id = p.patient_id
+            WHERE b.bill_id = %s LIMIT 1
+        """, (bill_id,))
+        bill = cursor.fetchone()
+    finally:
+        cursor.close()
+
     if not bill:
         raise HTTPException(status_code=404, detail="Bill not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(bill, field, value)
-    bill.total_amount = _compute_total(bill)
-    db.commit()
-    db.refresh(bill)
-    return {
-        "bill_id": bill.bill_id, "patient_id": bill.patient_id, "appointment_id": bill.appointment_id,
-        "consultation_fee": bill.consultation_fee, "treatment_cost": bill.treatment_cost,
-        "room_cost": bill.room_cost, "medicine_cost": bill.medicine_cost,
-        "total_amount": bill.total_amount, "paid_status": bill.paid_status,
-        "payment_method": bill.payment_method, "bill_date": bill.bill_date, "items": bill.items,
-        "patient_name": bill.patient.name if bill.patient else None,
-    }
+        
+    if current_user.role == "patient" and bill['patient_id'] != current_user.linked_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+        
+    return BillOut(**bill)
+
+
+@router.put("/{bill_id}", response_model=BillOut)
+def update_bill(bill_id: int, body: BillUpdate, db = Depends(get_db),
+                _: UserOut = Depends(require_receptionist)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT * FROM bills WHERE bill_id = %s LIMIT 1", (bill_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Bill not found")
+
+        data = body.model_dump(exclude_unset=True)
+        if not data:
+            cursor.execute("""
+                SELECT b.*, p.name as patient_name
+                FROM bills b
+                LEFT JOIN patients p ON b.patient_id = p.patient_id
+                WHERE b.bill_id = %s LIMIT 1
+            """, (bill_id,))
+            return BillOut(**cursor.fetchone())
+
+        set_clauses = ", ".join([f"{k} = %s" for k in data.keys()])
+        values = list(data.values()) + [bill_id]
+        
+        cursor.execute(
+            f"UPDATE bills SET {set_clauses} WHERE bill_id = %s", 
+            values
+        )
+        db.commit()
+
+        cursor.execute("""
+            SELECT b.*, p.name as patient_name
+            FROM bills b
+            LEFT JOIN patients p ON b.patient_id = p.patient_id
+            WHERE b.bill_id = %s LIMIT 1
+        """, (bill_id,))
+        return BillOut(**cursor.fetchone())
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()
+
+@router.delete("/{bill_id}", status_code=204)
+def delete_bill(bill_id: int, db = Depends(get_db), _: UserOut = Depends(require_receptionist)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("DELETE FROM bills WHERE bill_id = %s RETURNING bill_id", (bill_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Bill not found")
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()

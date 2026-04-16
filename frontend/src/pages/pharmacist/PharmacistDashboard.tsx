@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Package, AlertTriangle, PlusCircle, RefreshCw } from 'lucide-react';
 import DashboardLayout from '../../components/DashboardLayout';
 import api from '../../api/client';
@@ -11,11 +12,19 @@ const NAV = [
 ];
 
 export default function PharmacistDashboard() {
-  const [tab, setTab] = useState<'inventory' | 'alerts' | 'add'>('inventory');
+  const [tab, setTab] = useState<'inventory' | 'alerts' | 'add' | 'restock'>('inventory');
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const p = location.pathname.split('/').pop();
+    if (!p || p === 'pharmacist') setTab('inventory');
+    else setTab(p as any);
+  }, [location.pathname]);
   const [medicines, setMedicines] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
-  const [form, setForm] = useState({ name: '', category: '', stock_level: '', reorder_threshold: '20', unit_price: '', supplier: '', unit: 'tablets' });
+  const [form, setForm] = useState({ name: '', stock_quantity: '', price: '', expiry_date: '' });
   const [saving, setSaving] = useState(false);
   const [addMsg, setAddMsg] = useState('');
   const [restockId, setRestockId] = useState<number | null>(null);
@@ -25,22 +34,21 @@ export default function PharmacistDashboard() {
     api.get('/medicines/?limit=200').then(r => { setMedicines(r.data); setLoading(false); });
   }, []);
 
-  const lowStock = medicines.filter(m => m.is_low_stock);
-  const filtered = medicines.filter(m => m.name.toLowerCase().includes(q.toLowerCase()) || m.category?.toLowerCase().includes(q.toLowerCase()));
+  const lowStock = medicines.filter(m => m.stock_quantity < 50);
+  const filtered = medicines.filter(m => m.name.toLowerCase().includes(q.toLowerCase()));
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setAddMsg('');
     try {
       const res = await api.post('/medicines/', {
-        name: form.name, category: form.category,
-        stock_level: parseInt(form.stock_level) || 0,
-        reorder_threshold: parseInt(form.reorder_threshold) || 20,
-        unit_price: parseFloat(form.unit_price) || 0,
-        supplier: form.supplier, unit: form.unit,
+        name: form.name,
+        stock_quantity: parseInt(form.stock_quantity) || 0,
+        price: parseFloat(form.price) || 0,
+        expiry_date: form.expiry_date,
       });
       setMedicines([...medicines, res.data]);
       setAddMsg(`Added "${form.name}" to inventory.`);
-      setForm({ name: '', category: '', stock_level: '', reorder_threshold: '20', unit_price: '', supplier: '', unit: 'tablets' });
+      setForm({ name: '', stock_quantity: '', price: '', expiry_date: '' });
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Error adding medicine');
     } finally { setSaving(false); }
@@ -50,27 +58,21 @@ export default function PharmacistDashboard() {
     const qty = parseInt(restockQty);
     if (!qty || qty <= 0) return;
     const med = medicines.find(m => m.medicine_id === id);
-    await api.put(`/medicines/${id}`, { stock_level: med.stock_level + qty });
-    setMedicines(medicines.map(m => m.medicine_id === id ? { ...m, stock_level: m.stock_level + qty, is_low_stock: (m.stock_level + qty) <= m.reorder_threshold } : m));
+    await api.put(`/medicines/${id}`, { stock_quantity: med.stock_quantity + qty });
+    setMedicines(medicines.map(m => m.medicine_id === id ? { ...m, stock_quantity: m.stock_quantity + qty } : m));
     setRestockId(null); setRestockQty('');
-  };
-
-  const CATEGORY_COLORS: Record<string, string> = {
-    'Analgesic': '#06b6d4', 'Antibiotic': '#6366f1', 'Antidiabetic': '#10b981',
-    'Antacid': '#f59e0b', 'NSAID': '#ec4899', 'IV Fluid': '#8b5cf6',
-    'Hormone': '#ef4444', 'Lipid-lowering': '#f97316',
   };
 
   return (
     <DashboardLayout navItems={NAV} roleLabel="Pharmacist" roleColor="#ec4899">
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-        {(['inventory', 'alerts', 'add'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
+        {(['inventory', 'alerts', 'add', 'restock'] as const).map(t => (
+          <button key={t} onClick={() => navigate(t === 'inventory' ? '/pharmacist' : `/pharmacist/${t}`)}
             style={{ padding: '0.4rem 0.875rem', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600,
               background: tab === t ? 'linear-gradient(135deg, #ec4899, #6366f1)' : '#111827',
               color: tab === t ? 'white' : '#6b7280', transition: 'all 0.15s',
               position: 'relative' }}>
-            {t === 'inventory' ? 'Drug Inventory' : t === 'alerts' ? `Low Stock Alerts ${lowStock.length > 0 ? `(${lowStock.length})` : ''}` : 'Add Medicine'}
+            {t === 'inventory' ? 'Drug Inventory' : t === 'alerts' ? `Low Stock Alerts ${lowStock.length > 0 ? `(${lowStock.length})` : ''}` : t === 'restock' ? 'Restock' : 'Add Medicine'}
           </button>
         ))}
       </div>
@@ -83,7 +85,6 @@ export default function PharmacistDashboard() {
               { label: 'Total Medicines', value: medicines.length, color: '#06b6d4' },
               { label: 'Low Stock Alerts', value: lowStock.length, color: '#ef4444' },
               { label: 'Well Stocked', value: medicines.length - lowStock.length, color: '#10b981' },
-              { label: 'Categories', value: new Set(medicines.map(m => m.category)).size, color: '#6366f1' },
             ].map(s => (
               <div key={s.label} className="stat-card" style={{ borderTopWidth: 3, borderTopColor: s.color }}>
                 <div style={{ fontSize: '0.72rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.5rem' }}>{s.label}</div>
@@ -101,7 +102,7 @@ export default function PharmacistDashboard() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #1e2d45' }}>
-                    {['Medicine', 'Category', 'Stock', 'Threshold', 'Unit Price', 'Supplier', 'Status', 'Action'].map(h =>
+                    {['Medicine', 'Stock', 'Price', 'Expiry Date', 'Status', 'Action'].map(h =>
                       <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: '#4b5563', fontWeight: 600 }}>{h}</th>)}
                   </tr>
                 </thead>
@@ -110,29 +111,21 @@ export default function PharmacistDashboard() {
                     <tr key={m.medicine_id} className="table-row">
                       <td style={{ padding: '0.625rem 0.75rem', fontWeight: 600, color: '#e2e8f0', fontSize: '0.85rem' }}>{m.name}</td>
                       <td style={{ padding: '0.625rem 0.75rem' }}>
-                        <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 4, fontWeight: 600,
-                          background: (CATEGORY_COLORS[m.category] || '#6b7280') + '22', color: CATEGORY_COLORS[m.category] || '#6b7280',
-                          border: `1px solid ${(CATEGORY_COLORS[m.category] || '#6b7280')}44` }}>
-                          {m.category}
-                        </span>
-                      </td>
-                      <td style={{ padding: '0.625rem 0.75rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <div style={{ width: 60, height: 5, background: '#1e2d45', borderRadius: 2 }}>
                             <div style={{
                               height: '100%', borderRadius: 2,
-                              width: `${Math.min(100, (m.stock_level / Math.max(m.reorder_threshold * 3, 1)) * 100)}%`,
-                              background: m.is_low_stock ? '#ef4444' : '#10b981',
+                              width: `${Math.min(100, (m.stock_quantity / 150) * 100)}%`,
+                              background: m.stock_quantity < 50 ? '#ef4444' : '#10b981',
                             }} />
                           </div>
-                          <span style={{ color: m.is_low_stock ? '#ef4444' : '#e2e8f0', fontWeight: 600, fontSize: '0.85rem' }}>{m.stock_level}</span>
+                          <span style={{ color: m.stock_quantity < 50 ? '#ef4444' : '#e2e8f0', fontWeight: 600, fontSize: '0.85rem' }}>{m.stock_quantity}</span>
                         </div>
                       </td>
-                      <td style={{ padding: '0.625rem 0.75rem', color: '#6b7280', fontSize: '0.8rem' }}>{m.reorder_threshold}</td>
-                      <td style={{ padding: '0.625rem 0.75rem', color: '#10b981', fontWeight: 600, fontSize: '0.82rem' }}>₹{m.unit_price}/{m.unit}</td>
-                      <td style={{ padding: '0.625rem 0.75rem', color: '#6b7280', fontSize: '0.78rem' }}>{m.supplier}</td>
+                      <td style={{ padding: '0.625rem 0.75rem', color: '#10b981', fontWeight: 600, fontSize: '0.82rem' }}>₹{m.price}</td>
+                      <td style={{ padding: '0.625rem 0.75rem', color: '#6b7280', fontSize: '0.78rem' }}>{m.expiry_date || 'N/A'}</td>
                       <td style={{ padding: '0.625rem 0.75rem' }}>
-                        {m.is_low_stock
+                        {m.stock_quantity < 50
                           ? <span className="badge-danger" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 4, fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.25rem', width: 'fit-content' }}>
                             <AlertTriangle size={10} /> Low Stock
                           </span>
@@ -187,14 +180,14 @@ export default function PharmacistDashboard() {
                         <AlertTriangle size={18} style={{ color: '#ef4444', flexShrink: 0 }} />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
-                        <span>Current Stock: <b style={{ color: '#ef4444' }}>{m.stock_level} {m.unit}</b></span>
-                        <span>Min Required: <b style={{ color: '#f59e0b' }}>{m.reorder_threshold}</b></span>
+                        <span>Current Stock: <b style={{ color: '#ef4444' }}>{m.stock_quantity}</b></span>
+                        <span>Threshold: <b style={{ color: '#f59e0b' }}>50</b></span>
                       </div>
                       <div style={{ height: 5, background: '#1e2d45', borderRadius: 2, marginBottom: '0.75rem' }}>
-                        <div style={{ height: '100%', borderRadius: 2, width: `${Math.min(100, (m.stock_level / m.reorder_threshold) * 100)}%`, background: '#ef4444' }} />
+                        <div style={{ height: '100%', borderRadius: 2, width: `${Math.min(100, (m.stock_quantity / 50) * 100)}%`, background: '#ef4444' }} />
                       </div>
                       <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(239,68,68,0.08)', borderRadius: 6, fontSize: '0.75rem', color: '#f87171' }}>
-                        Need {Math.max(0, m.reorder_threshold - m.stock_level)} units to reach minimum threshold. Contact: {m.supplier}
+                        Need {Math.max(0, 50 - m.stock_quantity)} units to reach safe threshold.
                       </div>
                     </div>
                   ))}
@@ -210,11 +203,9 @@ export default function PharmacistDashboard() {
               <form onSubmit={handleAdd} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
                 {[
                   { key: 'name', label: 'Medicine Name', required: true, span: 2 },
-                  { key: 'category', label: 'Category' },
-                  { key: 'supplier', label: 'Supplier' },
-                  { key: 'stock_level', label: 'Initial Stock', type: 'number' },
-                  { key: 'reorder_threshold', label: 'Reorder Threshold', type: 'number' },
-                  { key: 'unit_price', label: 'Unit Price (₹)', type: 'number' },
+                  { key: 'stock_quantity', label: 'Initial Stock', type: 'number' },
+                  { key: 'price', label: 'Price (₹)', type: 'number' },
+                  { key: 'expiry_date', label: 'Expiry Date', type: 'date', span: 2 },
                 ].map(f => (
                   <div key={f.key} style={{ gridColumn: f.span === 2 ? '1/-1' : 'auto' }}>
                     <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>{f.label}</label>
@@ -222,12 +213,6 @@ export default function PharmacistDashboard() {
                       value={(form as any)[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} />
                   </div>
                 ))}
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Unit</label>
-                  <select className="input-field" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}>
-                    {['tablets', 'capsules', 'ml', 'mg', 'units', 'bags', 'vials', 'strips', 'bottles'].map(u => <option key={u}>{u}</option>)}
-                  </select>
-                </div>
                 <div style={{ gridColumn: '1/-1' }}>
                   <button type="submit" className="btn-primary" disabled={saving} style={{ padding: '0.625rem 1.5rem' }}>
                     {saving ? 'Adding...' : 'Add to Inventory'}
