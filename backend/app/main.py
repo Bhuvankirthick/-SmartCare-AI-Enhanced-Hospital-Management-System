@@ -1,7 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from .routers import auth, patients, doctors, appointments, treatments, bills, rooms, medicines, analytics
+from .routers import (
+    auth,
+    patients,
+    doctors,
+    appointments,
+    treatments,
+    bills,
+    rooms,
+    medicines,
+    analytics,
+)
 
 
 @asynccontextmanager
@@ -20,11 +30,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173", 
+        "http://localhost:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
-        "http://127.0.0.1:8000"
+        "http://127.0.0.1:8000",
     ],
     allow_credentials=True,
     allow_methods=["*"],

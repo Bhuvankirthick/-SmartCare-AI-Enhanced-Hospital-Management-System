@@ -6,10 +6,13 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app.config import settings
 
+
 def insert_data():
-    print(f"Connecting to database at {settings.database_url.split('@')[-1]} for data insertion...")
+    print(
+        f"Connecting to database at {settings.database_url.split('@')[-1]} for data insertion..."
+    )
     conn = psycopg2.connect(settings.database_url)
-    conn.autocommit = False # Use transactions
+    conn.autocommit = False  # Use transactions
     cursor = conn.cursor()
 
     sql_commands = """
@@ -173,7 +176,7 @@ INSERT INTO Inventory_Log (medicine_id, change_type, quantity, log_date) VALUES
 (1,'IN',20,'2026-04-24'),
 (2,'IN',15,'2026-04-25');
     """
-    
+
     try:
         cursor.execute(sql_commands)
         conn.commit()
@@ -184,6 +187,7 @@ INSERT INTO Inventory_Log (medicine_id, change_type, quantity, log_date) VALUES
     finally:
         cursor.close()
         conn.close()
+
 
 if __name__ == "__main__":
     insert_data()

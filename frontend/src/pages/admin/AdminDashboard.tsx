@@ -39,15 +39,12 @@ export default function AdminDashboard() {
   const [medicines, setMedicines] = useState<any[]>([]);
   const [diagnoses, setDiagnoses] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
-  const [tab, setTab] = useState<'overview' | 'patients' | 'doctors' | 'appointments' | 'rooms' | 'medicines' | 'diagnoses' | 'analytics' | 'users'>('overview');
   const location = useLocation();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const p = location.pathname.split('/').pop();
-    if (!p || p === 'admin') setTab('overview');
-    else setTab(p as any);
-  }, [location.pathname]);
+  const p = location.pathname.split('/').pop();
+  const tab = (!p || p === 'admin') ? 'overview' : p;
+
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

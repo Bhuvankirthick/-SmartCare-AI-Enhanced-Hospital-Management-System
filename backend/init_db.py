@@ -1,11 +1,11 @@
 import psycopg2
-from psycopg2 import sql
 import sys
 import os
 
 # Add the current directory to sys.path so we can import from 'app'
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app.config import settings
+
 
 def init_db():
     print(f"Connecting to database at {settings.database_url.split('@')[-1]}...")
@@ -15,14 +15,26 @@ def init_db():
 
     # Drop existing tables to start fresh
     tables_to_drop = [
-        "inventory_logs", "payments", "bills", "admissions", "prescription_medicines", 
-        "prescriptions", "diagnoses", "appointments", "medicines", "rooms", 
-        "doctor_departments", "departments", "doctors", "patients", "users"
+        "inventory_logs",
+        "payments",
+        "bills",
+        "admissions",
+        "prescription_medicines",
+        "prescriptions",
+        "diagnoses",
+        "appointments",
+        "medicines",
+        "rooms",
+        "doctor_departments",
+        "departments",
+        "doctors",
+        "patients",
+        "users",
     ]
-    
+
     for table in tables_to_drop:
         cursor.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-    
+
     print("Cleaned up old tables.")
 
     commands = [
@@ -170,7 +182,7 @@ def init_db():
             quantity INTEGER NOT NULL,
             log_date DATE DEFAULT CURRENT_DATE
         )
-        """
+        """,
     ]
 
     for command in commands:
@@ -179,6 +191,7 @@ def init_db():
     print("New database schema initialized successfully!")
     cursor.close()
     conn.close()
+
 
 if __name__ == "__main__":
     init_db()

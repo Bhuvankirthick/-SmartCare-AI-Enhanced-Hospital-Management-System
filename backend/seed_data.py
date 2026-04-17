@@ -5,11 +5,12 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app.auth.password import hash_password
 from app.config import settings
-import json
-from datetime import datetime, timedelta
+
 
 def seed():
-    print(f"Connecting to database at {settings.database_url.split('@')[-1]} for seeding...")
+    print(
+        f"Connecting to database at {settings.database_url.split('@')[-1]} for seeding..."
+    )
     conn = psycopg2.connect(settings.database_url)
     cursor = conn.cursor()
     try:
@@ -26,9 +27,9 @@ def seed():
             INSERT INTO users (username, email, password, role, is_active)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            ("admin", "admin@hms.com", admin_pw, "admin", True)
+            ("admin", "admin@hms.com", admin_pw, "admin", True),
         )
-        
+
         # Insert Doctor
         cursor.execute(
             """
@@ -36,7 +37,14 @@ def seed():
             VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING doctor_id
             """,
-            ("Dr. Rajesh Kumar", "Cardiology", "+91-9900001111", "rajesh@hms.com", 800.0, True)
+            (
+                "Dr. Rajesh Kumar",
+                "Cardiology",
+                "+91-9900001111",
+                "rajesh@hms.com",
+                800.0,
+                True,
+            ),
         )
         doc_id = cursor.fetchone()[0]
 
@@ -46,9 +54,9 @@ def seed():
             INSERT INTO users (username, email, password, role, is_active, linked_id)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            ("dr.rajesh", "rajesh@hms.com", doc_pw, "doctor", True, doc_id)
+            ("dr.rajesh", "rajesh@hms.com", doc_pw, "doctor", True, doc_id),
         )
-        
+
         # Insert Patient
         cursor.execute(
             """
@@ -56,7 +64,7 @@ def seed():
             VALUES (%s, %s, %s, %s, %s)
             RETURNING patient_id
             """,
-            ("Ananya Patel", "Female", "A+", "+91-9800001111", "ananya@gmail.com")
+            ("Ananya Patel", "Female", "A+", "+91-9800001111", "ananya@gmail.com"),
         )
         pat_id = cursor.fetchone()[0]
 
@@ -66,7 +74,7 @@ def seed():
             INSERT INTO users (username, email, password, role, is_active, linked_id)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            ("ananya.patient", "ananya_p@gmail.com", pat_pw, "patient", True, pat_id)
+            ("ananya.patient", "ananya_p@gmail.com", pat_pw, "patient", True, pat_id),
         )
 
         # Insert Receptionist and Pharmacist
@@ -76,7 +84,7 @@ def seed():
             INSERT INTO users (username, email, password, role, is_active)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            ("receptionist", "reception@hms.com", rec_pw, "receptionist", True)
+            ("receptionist", "reception@hms.com", rec_pw, "receptionist", True),
         )
         pha_pw = hash_password("pharma123")
         cursor.execute(
@@ -84,7 +92,7 @@ def seed():
             INSERT INTO users (username, email, password, role, is_active)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            ("pharmacist", "pharma@hms.com", pha_pw, "pharmacist", True)
+            ("pharmacist", "pharma@hms.com", pha_pw, "pharmacist", True),
         )
 
         conn.commit()
@@ -102,6 +110,7 @@ def seed():
     finally:
         cursor.close()
         conn.close()
+
 
 if __name__ == "__main__":
     seed()
