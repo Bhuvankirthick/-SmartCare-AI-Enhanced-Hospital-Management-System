@@ -14,7 +14,7 @@ def list_rooms(status: str = None, skip: int = 0, limit: int = 100, db=Depends(g
     try:
         if status:
             cursor.execute(
-                "SELECT * FROM rooms WHERE status = %s ORDER BY room_id OFFSET %s LIMIT %s",
+                "SELECT * FROM rooms WHERE availability_status = %s ORDER BY room_id OFFSET %s LIMIT %s",
                 (status, skip, limit),
             )
         else:

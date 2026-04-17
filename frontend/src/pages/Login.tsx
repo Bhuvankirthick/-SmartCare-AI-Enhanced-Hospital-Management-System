@@ -104,7 +104,8 @@ export default function Login() {
             <div style={{ fontSize: '0.75rem', color: '#4b5563', marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quick Demo Login</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
               {QUICK_LOGINS.map((q) => (
-                <button key={q.role} onClick={() => { setUsername(q.username); setPassword(q.password); }}
+                                <button key={q.role} onClick={() => { setUsername(q.username); setPassword(q.password); }}
+
                   style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem', borderRadius: 6, cursor: 'pointer', border: 'none',
                     background: username === q.username ? ROLE_LABELS[q.role].color + '33' : 'rgba(255,255,255,0.05)',
                     color: username === q.username ? ROLE_LABELS[q.role].color : '#6b7280',

@@ -122,6 +122,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS diagnoses (
             diagnosis_id SERIAL PRIMARY KEY,
             appointment_id INTEGER REFERENCES appointments(appointment_id) ON DELETE CASCADE,
+            patient_id INTEGER REFERENCES patients(patient_id) ON DELETE CASCADE,
+            doctor_id INTEGER REFERENCES doctors(doctor_id) ON DELETE CASCADE,
             diagnosis_details TEXT NOT NULL,
             notes TEXT,
             diagnosis_date DATE DEFAULT CURRENT_DATE
