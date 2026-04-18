@@ -8,10 +8,20 @@ from app.config import settings
 
 
 def init_db():
-    print(f"Connecting to database at {settings.database_url.split('@')[-1]}...")
-    conn = psycopg2.connect(settings.database_url)
-    conn.autocommit = True
-    cursor = conn.cursor()
+    db_url = settings.database_url
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    
+    print(f"Connecting to database at {db_url.split('@')[-1]}...")
+    try:
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        cursor = conn.cursor()
+    except Exception as e:
+        print(f"Failed to connect to database: {e}")
+        print("Tip: If using Supabase, ensure your connection string includes 'sslmode=require'")
+        return
+
 
     # Drop existing tables to start fresh
     tables_to_drop = [

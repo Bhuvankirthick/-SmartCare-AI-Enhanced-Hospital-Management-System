@@ -17,12 +17,12 @@ def insert_data():
 
     sql_commands = """
 -- Clean up and reset sequences
-TRUNCATE TABLE Patient, Doctor, Department, Room, Medicine, Appointment, Diagnosis, Prescription, Prescription_Medicine, Admission, Bill, Payment, Inventory_Log RESTART IDENTITY CASCADE;
+TRUNCATE TABLE patients, doctors, departments, doctor_departments, rooms, medicines, appointments, diagnoses, prescriptions, prescription_medicines, admissions, bills, payments, inventory_logs RESTART IDENTITY CASCADE;
 
 -- =========================
--- PATIENT (10 rows)
+-- PATIENTS (10 rows)
 -- =========================
-INSERT INTO Patient (name, dob, gender, contact, blood_group, address) VALUES
+INSERT INTO patients (name, dob, gender, contact, blood_group, address) VALUES
 ('Arun Kumar','2002-05-10','Male','9876543210','B+','Chennai'),
 ('Bala Raj','2001-08-21','Male','9123456780','A+','Coimbatore'),
 ('Kiran Devi','2003-01-15','Female','9988776655','O+','Madurai'),
@@ -35,9 +35,9 @@ INSERT INTO Patient (name, dob, gender, contact, blood_group, address) VALUES
 ('Anitha G','2000-06-05','Female','9007788990','O+','Madurai');
 
 -- =========================
--- DOCTOR (5 rows)
+-- DOCTORS (5 rows)
 -- =========================
-INSERT INTO Doctor (name, specialization, contact, email) VALUES
+INSERT INTO doctors (name, specialization, contact, email) VALUES
 ('Dr. Ravi','Cardiology','9000000001','ravi@hospital.com'),
 ('Dr. Meena','Neurology','9000000002','meena@hospital.com'),
 ('Dr. Suresh','Orthopedics','9000000003','suresh@hospital.com'),
@@ -45,21 +45,21 @@ INSERT INTO Doctor (name, specialization, contact, email) VALUES
 ('Dr. Kumar','General Medicine','9000000005','kumar@hospital.com');
 
 -- =========================
--- DEPARTMENT (5 rows)
+-- DEPARTMENTS (5 rows)
 -- =========================
-INSERT INTO Department (name) VALUES
+INSERT INTO departments (name) VALUES
 ('Cardiology'),('Neurology'),('Orthopedics'),('Dermatology'),('General Medicine');
 
 -- =========================
--- DOCTOR_DEPARTMENT (5 rows)
+-- DOCTOR_DEPARTMENTS (5 rows)
 -- =========================
-INSERT INTO Doctor_Department (doctor_id, department_id) VALUES
+INSERT INTO doctor_departments (doctor_id, department_id) VALUES
 (1,1),(2,2),(3,3),(4,4),(5,5);
 
 -- =========================
--- ROOM (5 rows)
+-- ROOMS (5 rows)
 -- =========================
-INSERT INTO Room (room_type, capacity, cost_per_day, availability_status) VALUES
+INSERT INTO rooms (room_type, capacity, cost_per_day, availability_status) VALUES
 ('General',2,1000.00,'Available'),
 ('ICU',1,5000.00,'Occupied'),
 ('Private',1,3000.00,'Available'),
@@ -67,9 +67,9 @@ INSERT INTO Room (room_type, capacity, cost_per_day, availability_status) VALUES
 ('ICU',1,6000.00,'Occupied');
 
 -- =========================
--- MEDICINE (6 rows)
+-- MEDICINES (6 rows)
 -- =========================
-INSERT INTO Medicine (name, stock_quantity, price, expiry_date) VALUES
+INSERT INTO medicines (name, stock_quantity, price, expiry_date) VALUES
 ('Paracetamol',200,5.50,'2027-12-31'),
 ('Aspirin',120,8.00,'2026-10-10'),
 ('Ibuprofen',150,6.75,'2027-05-20'),
@@ -78,9 +78,9 @@ INSERT INTO Medicine (name, stock_quantity, price, expiry_date) VALUES
 ('Metformin',90,9.00,'2026-12-01');
 
 -- =========================
--- APPOINTMENT (10 rows)
+-- APPOINTMENTS (10 rows)
 -- =========================
-INSERT INTO Appointment (patient_id, doctor_id, appointment_date, appointment_time, status) VALUES
+INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, status) VALUES
 (1,1,'2026-04-20','10:30','Scheduled'),
 (2,2,'2026-04-21','11:00','Completed'),
 (3,3,'2026-04-21','12:00','Completed'),
@@ -93,9 +93,9 @@ INSERT INTO Appointment (patient_id, doctor_id, appointment_date, appointment_ti
 (10,5,'2026-04-25','09:00','Scheduled');
 
 -- =========================
--- DIAGNOSIS (10 rows)
+-- DIAGNOSES (10 rows)
 -- =========================
-INSERT INTO Diagnosis (appointment_id, diagnosis_details, notes, diagnosis_date) VALUES
+INSERT INTO diagnoses (appointment_id, diagnosis_details, notes, diagnosis_date) VALUES
 (1,'Chest pain','ECG advised','2026-04-20'),
 (2,'Migraine','Rest recommended','2026-04-21'),
 (3,'Fracture','X-ray taken','2026-04-21'),
@@ -108,17 +108,17 @@ INSERT INTO Diagnosis (appointment_id, diagnosis_details, notes, diagnosis_date)
 (10,'Diabetes','Diet control','2026-04-25');
 
 -- =========================
--- PRESCRIPTION (10 rows)
+-- PRESCRIPTIONS (10 rows)
 -- =========================
-INSERT INTO Prescription (diagnosis_id, issued_date) VALUES
+INSERT INTO prescriptions (diagnosis_id, issued_date) VALUES
 (1,'2026-04-20'),(2,'2026-04-21'),(3,'2026-04-21'),
 (4,'2026-04-22'),(5,'2026-04-22'),(6,'2026-04-23'),
 (7,'2026-04-23'),(8,'2026-04-24'),(9,'2026-04-24'),(10,'2026-04-25');
 
 -- =========================
--- PRESCRIPTION_MEDICINE (12 rows)
+-- PRESCRIPTION_MEDICINES (12 rows)
 -- =========================
-INSERT INTO Prescription_Medicine (prescription_id, medicine_id, dosage, duration, quantity) VALUES
+INSERT INTO prescription_medicines (prescription_id, medicine_id, dosage, duration, quantity) VALUES
 (1,1,'500mg','5 days',10),
 (2,2,'100mg','3 days',6),
 (3,3,'200mg','4 days',8),
@@ -133,9 +133,9 @@ INSERT INTO Prescription_Medicine (prescription_id, medicine_id, dosage, duratio
 (6,2,'100mg','2 days',4);
 
 -- =========================
--- ADMISSION (6 rows)
+-- ADMISSIONS (6 rows)
 -- =========================
-INSERT INTO Admission (patient_id, room_id, admission_date, discharge_date) VALUES
+INSERT INTO admissions (patient_id, room_id, admission_date, discharge_date) VALUES
 (1,2,'2026-04-20','2026-04-25'),
 (2,1,'2026-04-21','2026-04-23'),
 (3,3,'2026-04-21','2026-04-24'),
@@ -144,9 +144,9 @@ INSERT INTO Admission (patient_id, room_id, admission_date, discharge_date) VALU
 (9,2,'2026-04-24','2026-04-28');
 
 -- =========================
--- BILL (6 rows)
+-- BILLS (6 rows)
 -- =========================
-INSERT INTO Bill (patient_id, admission_id, total_amount, bill_date, payment_status) VALUES
+INSERT INTO bills (patient_id, admission_id, total_amount, bill_date, payment_status) VALUES
 (1,1,15000.00,'2026-04-25','Pending'),
 (2,2,5000.00,'2026-04-23','Paid'),
 (3,3,8000.00,'2026-04-24','Paid'),
@@ -155,18 +155,18 @@ INSERT INTO Bill (patient_id, admission_id, total_amount, bill_date, payment_sta
 (9,6,18000.00,'2026-04-28','Pending');
 
 -- =========================
--- PAYMENT (4 rows)
+-- PAYMENTS (4 rows)
 -- =========================
-INSERT INTO Payment (bill_id, amount_paid, payment_date, payment_method) VALUES
+INSERT INTO payments (bill_id, amount_paid, payment_date, payment_method) VALUES
 (2,5000.00,'2026-04-23','UPI'),
 (3,8000.00,'2026-04-24','Cash'),
 (5,12000.00,'2026-04-27','Card'),
 (1,5000.00,'2026-04-25','UPI');  -- partial payment example
 
 -- =========================
--- INVENTORY_LOG (8 rows)
+-- INVENTORY_LOGS (8 rows)
 -- =========================
-INSERT INTO Inventory_Log (medicine_id, change_type, quantity, log_date) VALUES
+INSERT INTO inventory_logs (medicine_id, change_type, quantity, log_date) VALUES
 (1,'OUT',10,'2026-04-20'),
 (2,'OUT',6,'2026-04-21'),
 (3,'OUT',8,'2026-04-21'),

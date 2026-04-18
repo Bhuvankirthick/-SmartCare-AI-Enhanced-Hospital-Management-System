@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Stethoscope, Calendar, BarChart3, Settings, BedDouble } from 'lucide-react';
+import { LayoutDashboard, Users, Stethoscope, Calendar, Settings, BedDouble } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import DashboardLayout from '../../components/DashboardLayout';
 import api from '../../api/client';
@@ -13,7 +13,6 @@ const NAV = [
   { icon: <BedDouble size={17} />, label: 'Rooms', path: '/admin/rooms' },
   { icon: <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.5 20.5 7 17l-3.5 3.5a2.12 2.12 0 0 1-3-3l14-14a2.12 2.12 0 0 1 3 3l-3.5 3.5"/><path d="m14.5 10.5 3-3"/><path d="m10.5 14.5 3-3"/></svg>, label: 'Medicines', path: '/admin/medicines' },
   { icon: <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>, label: 'Diagnoses', path: '/admin/diagnoses' },
-  { icon: <BarChart3 size={17} />, label: 'Analytics & AI', path: '/admin/analytics' },
   { icon: <Settings size={17} />, label: 'User Management', path: '/admin/users' },
 ];
 
@@ -31,7 +30,6 @@ function StatCard({ label, value, sub, color }: { label: string; value: any; sub
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<any>(null);
-  const [predictions, setPredictions] = useState<any>(null);
   const [patients, setPatients] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -49,8 +47,6 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/analytics/stats').then(r => setStats(r.data)),
-      api.get('/analytics/predictions').then(r => setPredictions(r.data)),
       api.get('/patients/?limit=50').then(r => setPatients(r.data)),
       api.get('/doctors/').then(r => setDoctors(r.data)),
       api.get('/appointments/?limit=100').then(r => setAppointments(r.data)),
@@ -58,6 +54,7 @@ export default function AdminDashboard() {
       api.get('/medicines/').then(r => setMedicines(r.data)),
       api.get('/treatments/').then(r => setDiagnoses(r.data)),
       api.get('/auth/users').then(r => setUsers(r.data)),
+      api.get('/analytics/stats').then(r => setStats(r.data)),
     ]).finally(() => setLoading(false));
   }, []);
 
@@ -166,81 +163,6 @@ export default function AdminDashboard() {
       </div>
     );
 
-    if (tab === 'analytics') return (
-      <div className="animate-slide-up">
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f1f5f9', marginBottom: '0.5rem' }}>AI Predictions</h1>
-        <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
-          7-day bed occupancy forecast · Model: {predictions?.model || 'statistical'}
-        </p>
-
-        {/* Forecast chart */}
-        <div className="card" style={{ marginBottom: '1.5rem' }}>
-          <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#e2e8f0', marginBottom: '1rem' }}>Predicted Bed Occupancy (%) — Next 7 Days</div>
-          <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={predictions?.predictions ?? []}>
-              <defs>
-                <linearGradient id="occGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="confGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.12} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e2d45" />
-              <XAxis dataKey="day" tick={{ fill: '#6b7280', fontSize: 12 }} />
-              <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fill: '#6b7280', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: '#111827', border: '1px solid #1e2d45', borderRadius: 8, color: '#e2e8f0' }}
-                formatter={(v: any, n: any) => [`${v}%`, n === 'predicted_occupancy' ? 'Predicted' : n]} />
-              <Area type="monotone" dataKey="confidence_high" stroke="none" fill="url(#confGrad)" />
-              <Area type="monotone" dataKey="confidence_low" stroke="none" fill="#0a0f1e" />
-              <Area type="monotone" dataKey="predicted_occupancy" stroke="#06b6d4" fill="url(#occGrad)" strokeWidth={2.5} dot={{ fill: '#06b6d4', r: 4 }} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Forecast table */}
-        <div className="card">
-          <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#e2e8f0', marginBottom: '1rem' }}>Detailed Forecast</div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid #1e2d45' }}>
-                {['Day', 'Date', 'Predicted Occupancy', 'Confidence Range', 'Alert'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: '#4b5563', fontWeight: 600 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(predictions?.predictions ?? []).map((p: any) => (
-                <tr key={p.date} className="table-row">
-                  <td style={{ padding: '0.625rem 0.75rem', fontWeight: 600, color: '#e2e8f0', fontSize: '0.85rem' }}>{p.day}</td>
-                  <td style={{ padding: '0.625rem 0.75rem', color: '#6b7280', fontSize: '0.8rem' }}>{p.date}</td>
-                  <td style={{ padding: '0.625rem 0.75rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{ flex: 1, height: 6, background: '#1e2d45', borderRadius: 3 }}>
-                        <div style={{ width: `${p.predicted_occupancy}%`, height: '100%', borderRadius: 3,
-                          background: p.predicted_occupancy > 80 ? '#ef4444' : p.predicted_occupancy > 65 ? '#f59e0b' : '#10b981' }} />
-                      </div>
-                      <span style={{ fontSize: '0.85rem', color: '#e2e8f0', fontWeight: 600, minWidth: 45 }}>{p.predicted_occupancy}%</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '0.625rem 0.75rem', color: '#6b7280', fontSize: '0.8rem' }}>
-                    {p.confidence_low}% – {p.confidence_high}%
-                  </td>
-                  <td style={{ padding: '0.625rem 0.75rem' }}>
-                    {p.predicted_occupancy > 80 ? <span className="badge-danger" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 4 }}>High Load</span>
-                      : p.predicted_occupancy > 65 ? <span className="badge-warning" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 4 }}>Moderate</span>
-                      : <span className="badge-success" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 4 }}>Normal</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-
     if (tab === 'patients') return (
       <PatientManagement patients={patients} setPatients={setPatients} />
     );
@@ -263,12 +185,12 @@ export default function AdminDashboard() {
   return (
     <DashboardLayout navItems={navWithClick} roleLabel="Administrator" roleColor="#6366f1">
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-        {(['overview', 'patients', 'doctors', 'appointments', 'rooms', 'medicines', 'diagnoses', 'analytics', 'users'] as const).map(t => (
+        {(['overview', 'patients', 'doctors', 'appointments', 'rooms', 'medicines', 'diagnoses', 'users'] as const).map(t => (
           <button key={t} onClick={() => navigate(t === 'overview' ? '/admin' : `/admin/${t}`)}
             style={{ padding: '0.4rem 0.875rem', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, textTransform: 'capitalize',
               background: tab === t ? 'linear-gradient(135deg, #06b6d4, #6366f1)' : '#111827',
               color: tab === t ? 'white' : '#6b7280', transition: 'all 0.15s' }}>
-            {t === 'analytics' ? 'AI Analytics' : t}
+            {t}
           </button>
         ))}
       </div>

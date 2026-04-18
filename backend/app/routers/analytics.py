@@ -1,131 +1,95 @@
 from fastapi import APIRouter, Depends
-from datetime import datetime, timedelta
-import random
+from psycopg2.extras import RealDictCursor
 from ..database import get_db
 from ..schemas.auth import UserOut
-from ..auth.rbac import require_admin
+from ..auth.rbac import get_current_user
 
-router = APIRouter(prefix="/analytics", tags=["Analytics"])
-
-router = APIRouter(prefix="/analytics", tags=["Analytics"])
-
+router = APIRouter(prefix="/analytics", tags=["Dashboard"])
 
 @router.get("/stats")
-def get_stats(db=Depends(get_db), _: UserOut = Depends(require_admin)):
-    cursor = db.cursor()
+def get_dashboard_stats(db=Depends(get_db), _: UserOut = Depends(get_current_user)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
     try:
+        # 1. Basic Counts
         cursor.execute("SELECT COUNT(*) FROM patients")
-        total_patients = cursor.fetchone()[0] or 0
+        total_patients = cursor.fetchone()['count']
 
         cursor.execute("SELECT COUNT(*) FROM doctors")
-        total_doctors = cursor.fetchone()[0] or 0
+        total_doctors = cursor.fetchone()['count']
 
         cursor.execute("SELECT COUNT(*) FROM appointments")
-        total_appointments = cursor.fetchone()[0] or 0
+        total_appointments = cursor.fetchone()['count']
 
-        cursor.execute(
-            "SELECT SUM(total_amount) FROM bills WHERE payment_status = 'Paid'"
-        )
-        total_revenue = cursor.fetchone()[0] or 0
+        # 2. Financials
+        cursor.execute("SELECT SUM(total_amount) FROM bills WHERE payment_status = 'Paid'")
+        total_revenue = cursor.fetchone()['sum'] or 0
 
         cursor.execute("SELECT COUNT(*) FROM bills WHERE payment_status = 'Pending'")
-        pending_bills = cursor.fetchone()[0] or 0
+        pending_bills = cursor.fetchone()['count']
 
-        # Available beds: Rooms marked 'Available'
-        cursor.execute(
-            "SELECT SUM(capacity) FROM rooms WHERE availability_status = 'Available'"
-        )
-        available_beds = cursor.fetchone()[0] or 0
+        # 3. Inventory & Rooms
+        cursor.execute("SELECT COUNT(*) FROM rooms WHERE availability_status = 'Available'")
+        available_beds = cursor.fetchone()['count']
 
-        # Low stock: Medicines with quantity < 50 (default threshold for now)
-        cursor.execute("SELECT COUNT(*) FROM medicines WHERE stock_quantity < 50")
-        low_stock_count = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT COUNT(*) FROM medicines WHERE stock_quantity < 20")
+        low_stock_count = cursor.fetchone()['count']
 
-        # Appointments by day (last 7 days)
-        daily_appts = []
-        for i in range(6, -1, -1):
-            d = datetime.now() - timedelta(days=i)
-            cursor.execute(
-                "SELECT COUNT(*) FROM appointments WHERE appointment_date = %s",
-                (d.date(),),
-            )
-            count = cursor.fetchone()[0] or 0
-            daily_appts.append({"date": d.strftime("%b %d"), "count": count})
+        # 4. Daily Appointments (Last 7 Days)
+        cursor.execute("""
+            SELECT TO_CHAR(appointment_date, 'DD Mon') as date, COUNT(*) as count
+            FROM appointments
+            WHERE appointment_date >= CURRENT_DATE - INTERVAL '7 days'
+            GROUP BY appointment_date
+            ORDER BY appointment_date
+        """)
+        daily_appts = cursor.fetchall()
 
-        # Revenue by month (last 6 months)
-        monthly_revenue = []
-        for i in range(5, -1, -1):
-            d = datetime.now() - timedelta(days=i * 30)
-            month_str = d.strftime("%Y-%m")
-            cursor.execute(
-                "SELECT SUM(total_amount) FROM bills WHERE TO_CHAR(bill_date, 'YYYY-MM') = %s AND payment_status = 'Paid'",
-                (month_str,),
-            )
-            rev = cursor.fetchone()[0] or 0
-            monthly_revenue.append(
-                {"month": d.strftime("%b %Y"), "revenue": round(rev or 0, 2)}
-            )
+        # 5. Status Breakdown
+        cursor.execute("""
+            SELECT status, COUNT(*) as count
+            FROM appointments
+            GROUP BY status
+        """)
+        status_breakdown = cursor.fetchall()
 
-        # Appointment status breakdown
-        status_breakdown = []
-        statuses = ["Scheduled", "Completed", "Cancelled"]
-        for status in statuses:
-            cursor.execute(
-                "SELECT COUNT(*) FROM appointments WHERE status = %s", (status,)
-            )
-            count = cursor.fetchone()[0] or 0
-            status_breakdown.append({"status": status.lower(), "count": count})
+        # 6. Monthly Revenue
+        cursor.execute("""
+            SELECT TO_CHAR(bill_date, 'Mon YYYY') as month, SUM(total_amount) as revenue
+            FROM bills
+            WHERE payment_status = 'Paid'
+            GROUP BY TO_CHAR(bill_date, 'Mon YYYY'), DATE_TRUNC('month', bill_date)
+            ORDER BY DATE_TRUNC('month', bill_date)
+            LIMIT 6
+        """)
+        monthly_rev = cursor.fetchall()
 
         return {
             "total_patients": total_patients,
             "total_doctors": total_doctors,
             "total_appointments": total_appointments,
-            "total_revenue": round(total_revenue or 0, 2),
+            "total_revenue": total_revenue,
             "pending_bills": pending_bills,
-            "available_beds": int(available_beds),
+            "available_beds": available_beds,
             "low_stock_count": low_stock_count,
             "daily_appointments": daily_appts,
-            "monthly_revenue": monthly_revenue,
             "status_breakdown": status_breakdown,
+            "monthly_revenue": monthly_rev
         }
     finally:
         cursor.close()
 
-
 @router.get("/predictions")
-def get_predictions(db=Depends(get_db), _: UserOut = Depends(require_admin)):
-    """
-    Return 7-day bed occupancy forecast.
-    Fallback to statistical simulation since training data might be stale.
-    """
-    cursor = db.cursor()
-    try:
-        cursor.execute("SELECT SUM(capacity) FROM rooms")
-        total_rooms = cursor.fetchone()[0] or 50
-
-        # Occupied beds are rooms marked 'Occupied'
-        cursor.execute(
-            "SELECT SUM(capacity) FROM rooms WHERE availability_status = 'Occupied'"
-        )
-        current_occ = cursor.fetchone()[0] or 0
-    finally:
-        cursor.close()
-
-    base_pct = (current_occ / total_rooms * 100) if total_rooms else 40
-
-    predictions = []
-    occ = base_pct
-    for i in range(1, 8):
-        d = datetime.now() + timedelta(days=i)
-        day_factor = 1.15 if d.weekday() < 5 else 0.8
-        occ = min(95, max(20, occ + random.uniform(-5, 7) * day_factor))
-        predictions.append(
-            {
-                "date": d.strftime("%Y-%m-%d"),
-                "day": d.strftime("%A"),
-                "predicted_occupancy": round(occ, 1),
-                "confidence_low": round(max(0, occ - 8), 1),
-                "confidence_high": round(min(100, occ + 8), 1),
-            }
-        )
-    return {"model": "statistical", "predictions": predictions}
+def get_dummy_predictions():
+    # Return dummy data since AI is removed
+    return {
+        "model": "statistical",
+        "predictions": [
+            {"day": "Mon", "date": "2026-04-20", "predicted_occupancy": 65, "confidence_low": 60, "confidence_high": 70},
+            {"day": "Tue", "date": "2026-04-21", "predicted_occupancy": 70, "confidence_low": 65, "confidence_high": 75},
+            {"day": "Wed", "date": "2026-04-22", "predicted_occupancy": 82, "confidence_low": 75, "confidence_high": 88},
+            {"day": "Thu", "date": "2026-04-23", "predicted_occupancy": 78, "confidence_low": 72, "confidence_high": 84},
+            {"day": "Fri", "date": "2026-04-24", "predicted_occupancy": 60, "confidence_low": 55, "confidence_high": 65},
+            {"day": "Sat", "date": "2026-04-25", "predicted_occupancy": 55, "confidence_low": 50, "confidence_high": 60},
+            {"day": "Sun", "date": "2026-04-26", "predicted_occupancy": 58, "confidence_low": 52, "confidence_high": 64},
+        ]
+    }

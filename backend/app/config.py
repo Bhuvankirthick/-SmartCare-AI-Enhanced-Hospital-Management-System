@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "sqlite:///./hms.db"
+    database_url: str = "postgresql://neondb_owner:npg_d8rQiDI3jfNX@ep-plain-butterfly-anfb9ujg-pooler.c-6.us-east-1.aws.neon.tech/neondb?channel_binding=require&sslmode=require"
     secret_key: str = "hms-super-secret-key-change-in-production-2024"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480  # 8 hours

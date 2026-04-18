@@ -51,8 +51,9 @@ def seed_users():
         for u in users:
             cursor.execute(
                 """
-                INSERT INTO "User" (username, email, password, role, is_active, linked_id)
+                INSERT INTO users (username, email, password, role, is_active, linked_id)
                 VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (username) DO NOTHING
                 """,
                 u,
             )

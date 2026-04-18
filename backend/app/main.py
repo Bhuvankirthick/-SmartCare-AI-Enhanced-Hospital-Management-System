@@ -21,9 +21,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Hospital Management System API",
-    description="Comprehensive HMS with RBAC, EHR, Scheduling, Billing & AI Predictions",
+    title="SmartCare Hospital API",
+    description="Core backend for SmartCare Hospital Management System",
     version="1.0.0",
+    root_path="/api",
     lifespan=lifespan,
 )
 

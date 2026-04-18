@@ -19,9 +19,11 @@ def list_treatments(
     cursor = db.cursor(cursor_factory=RealDictCursor)
     try:
         base_query = """
-            SELECT t.*, d.name as doctor_name
+            SELECT t.*, a.patient_id, a.doctor_id, d.name as doctor_name, p.name as patient_name
             FROM diagnoses t
-            LEFT JOIN doctors d ON t.doctor_id = d.doctor_id
+            JOIN appointments a ON t.appointment_id = a.appointment_id
+            LEFT JOIN doctors d ON a.doctor_id = d.doctor_id
+            LEFT JOIN patients p ON a.patient_id = p.patient_id
             WHERE 1=1
         """
         params = []
@@ -86,9 +88,11 @@ def get_treatment(
     try:
         cursor.execute(
             """
-            SELECT t.*, d.name as doctor_name
+            SELECT t.*, a.patient_id, a.doctor_id, d.name as doctor_name, p.name as patient_name
             FROM diagnoses t
-            LEFT JOIN doctors d ON t.doctor_id = d.doctor_id
+            JOIN appointments a ON t.appointment_id = a.appointment_id
+            LEFT JOIN doctors d ON a.doctor_id = d.doctor_id
+            LEFT JOIN patients p ON a.patient_id = p.patient_id
             WHERE t.diagnosis_id = %s LIMIT 1
         """,
             (treatment_id,),
@@ -140,9 +144,11 @@ def update_treatment(
 
         cursor.execute(
             """
-            SELECT t.*, d.name as doctor_name
+            SELECT t.*, a.patient_id, a.doctor_id, d.name as doctor_name, p.name as patient_name
             FROM diagnoses t
-            LEFT JOIN doctors d ON t.doctor_id = d.doctor_id
+            JOIN appointments a ON t.appointment_id = a.appointment_id
+            LEFT JOIN doctors d ON a.doctor_id = d.doctor_id
+            LEFT JOIN patients p ON a.patient_id = p.patient_id
             WHERE t.diagnosis_id = %s LIMIT 1
         """,
             (treatment_id,),
