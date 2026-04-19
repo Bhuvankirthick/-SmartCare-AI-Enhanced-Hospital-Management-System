@@ -16,7 +16,8 @@ class PatientBase(BaseModel):
 
 
 class PatientCreate(PatientBase):
-    pass
+    username: str
+    password: str
 
 
 class PatientUpdate(PatientBase):

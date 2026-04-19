@@ -21,6 +21,14 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    email: str
+    role: str  # 'patient' or 'doctor'
+    name: str  # the full name of the user
+
+
 class UserCreate(BaseModel):
     username: str
     email: str

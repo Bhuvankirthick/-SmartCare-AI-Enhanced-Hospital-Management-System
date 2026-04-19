@@ -20,11 +20,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
+from fastapi import APIRouter
+
 app = FastAPI(
     title="SmartCare Hospital API",
     description="Core backend for SmartCare Hospital Management System",
     version="1.0.0",
-    root_path="/api",
     lifespan=lifespan,
 )
 
@@ -42,16 +43,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+api_router = APIRouter(prefix="/api")
+
 # Mount all routers
-app.include_router(auth.router)
-app.include_router(patients.router)
-app.include_router(doctors.router)
-app.include_router(appointments.router)
-app.include_router(treatments.router)
-app.include_router(bills.router)
-app.include_router(rooms.router)
-app.include_router(medicines.router)
-app.include_router(analytics.router)
+api_router.include_router(auth.router)
+api_router.include_router(patients.router)
+api_router.include_router(doctors.router)
+api_router.include_router(appointments.router)
+api_router.include_router(treatments.router)
+api_router.include_router(bills.router)
+api_router.include_router(rooms.router)
+api_router.include_router(medicines.router)
+api_router.include_router(analytics.router)
+
+app.include_router(api_router)
 
 
 @app.get("/", tags=["Health"])

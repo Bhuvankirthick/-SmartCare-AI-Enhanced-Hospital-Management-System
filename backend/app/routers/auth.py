@@ -1,12 +1,58 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from psycopg2.extras import RealDictCursor
 from ..database import get_db
-from ..schemas.auth import Token, LoginRequest, UserCreate, UserOut
+from ..schemas.auth import Token, LoginRequest, UserCreate, UserOut, RegisterRequest
 from ..auth.password import verify_password, hash_password
 from ..auth.jwt_handler import create_access_token
 from ..auth.rbac import require_admin, get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/register", response_model=UserOut, status_code=201)
+def register(body: RegisterRequest, db=Depends(get_db)):
+    cursor = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        # Check if username already exists
+        cursor.execute("SELECT * FROM users WHERE username = %s LIMIT 1", (body.username,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Username already taken")
+            
+        linked_id = None
+        
+        # Create corresponding profile
+        if body.role == "patient":
+            cursor.execute(
+                "INSERT INTO patients (name, email) VALUES (%s, %s) RETURNING patient_id",
+                (body.name, body.email)
+            )
+            linked_id = cursor.fetchone()["patient_id"]
+        elif body.role == "doctor":
+            cursor.execute(
+                "INSERT INTO doctors (name, email, specialization) VALUES (%s, %s, %s) RETURNING doctor_id",
+                (body.name, body.email, "General") # Default specialization
+            )
+            linked_id = cursor.fetchone()["doctor_id"]
+        elif body.role not in ["patient", "doctor"]:
+            raise HTTPException(status_code=400, detail="Registration role must be patient or doctor")
+
+        hashed_pw = hash_password(body.password)
+        cursor.execute(
+            """
+            INSERT INTO users (username, email, password, role, linked_id)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (body.username, body.email, hashed_pw, body.role, linked_id),
+        )
+        user = cursor.fetchone()
+        db.commit()
+        return UserOut(**user)
+    except Exception as e:
+        db.rollback()
+        raise e
+    finally:
+        cursor.close()
 
 
 @router.post("/login", response_model=Token)

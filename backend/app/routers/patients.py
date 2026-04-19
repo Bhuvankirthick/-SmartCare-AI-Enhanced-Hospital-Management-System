@@ -3,7 +3,9 @@ from psycopg2.extras import RealDictCursor
 from ..database import get_db
 from ..schemas.patient import PatientCreate, PatientUpdate, PatientOut
 from ..schemas.auth import UserOut
+from ..auth.password import hash_password
 from ..auth.rbac import require_any_staff, get_current_user
+from ..utils.notifications import send_notification
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
 
@@ -38,17 +40,30 @@ def create_patient(
     body: PatientCreate, db=Depends(get_db), _: UserOut = Depends(require_any_staff)
 ):
     cursor = db.cursor(cursor_factory=RealDictCursor)
-    data = body.model_dump()
-    columns = list(data.keys())
-    values = list(data.values())
-    placeholders = ", ".join(["%s"] * len(columns))
-    cols_str = ", ".join(columns)
+    # Extract patient data from request body
+    patient_data = body.model_dump()
+    patient_columns = list(patient_data.keys())
+    patient_values = list(patient_data.values())
+    patient_placeholders = ", ".join(["%s"] * len(patient_columns))
+    patient_cols_str = ", ".join(patient_columns)
     try:
+        # Insert patient and get full record including patient_id
         cursor.execute(
-            f"INSERT INTO patients ({cols_str}) VALUES ({placeholders}) RETURNING *",
-            values,
+            f"INSERT INTO patients ({patient_cols_str}) VALUES ({patient_placeholders}) RETURNING *",
+            patient_values,
         )
         patient = cursor.fetchone()
+        # Create corresponding user entry linked to this patient
+        hashed_pw = hash_password(body.password)
+        user_columns = ["username", "email", "password", "role", "linked_id"]
+        user_values = [body.username, body.email, hashed_pw, "patient", patient["patient_id"]]
+        user_placeholders = ", ".join(["%s"] * len(user_columns))
+        user_cols_str = ", ".join(user_columns)
+        cursor.execute(
+            f"INSERT INTO users ({user_cols_str}) VALUES ({user_placeholders}) RETURNING *",
+            user_values,
+        )
+        # Commit transaction after both inserts
         db.commit()
         return PatientOut(**patient)
     except Exception as e:
@@ -111,7 +126,6 @@ def update_patient(
             values,
         )
         patient = cursor.fetchone()
-        db.commit()
         return PatientOut(**patient)
     except Exception as e:
         db.rollback()

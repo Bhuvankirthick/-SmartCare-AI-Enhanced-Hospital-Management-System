@@ -5,6 +5,7 @@ from ..database import get_db
 from ..schemas.appointment import AppointmentCreate, AppointmentUpdate, AppointmentOut
 from ..schemas.auth import UserOut
 from ..auth.rbac import get_current_user, require_any_staff
+from ..utils.notifications import send_notification
 
 router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
@@ -116,6 +117,9 @@ def create_appointment(
         )
         new_id = cursor.fetchone()["appointment_id"]
         db.commit()
+
+        # Send notification to patient about appointment scheduling
+        send_notification(to_user_id=body.patient_id, message=f"Your appointment is scheduled on {body.appointment_date} at {body.appointment_time}")
 
         # Fetch complete object with names
         cursor.execute(
