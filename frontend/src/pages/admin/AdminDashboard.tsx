@@ -167,7 +167,7 @@ export default function AdminDashboard() {
       <PatientManagement patients={patients} setPatients={setPatients} />
     );
 
-    if (tab === 'doctors') return <DoctorManagement doctors={doctors} />;
+    if (tab === 'doctors') return <DoctorManagement doctors={doctors} setDoctors={setDoctors} />;
     if (tab === 'appointments') return <AppointmentManagement appointments={appointments} />;
     if (tab === 'rooms') return <RoomManagement rooms={rooms} />;
     if (tab === 'medicines') return <MedicineManagement medicines={medicines} />;
@@ -202,7 +202,7 @@ export default function AdminDashboard() {
 function PatientManagement({ patients, setPatients }: { patients: any[]; setPatients: any }) {
   const [showForm, setShowForm] = useState(false);
   const [q, setQ] = useState('');
-  const [form, setForm] = useState({ name: '', gender: 'Male', blood_group: 'O+', contact: '', email: '', address: '' });
+  const [form, setForm] = useState({ name: '', gender: 'Male', blood_group: 'O+', contact: '', email: '', address: '', username: '', password: '' });
   const [saving, setSaving] = useState(false);
 
   const filtered = patients.filter(p => p.name.toLowerCase().includes(q.toLowerCase()) || p.email?.toLowerCase().includes(q.toLowerCase()));
@@ -214,7 +214,7 @@ function PatientManagement({ patients, setPatients }: { patients: any[]; setPati
       const res = await api.post('/patients/', form);
       setPatients([...patients, res.data]);
       setShowForm(false);
-      setForm({ name: '', gender: 'Male', blood_group: 'O+', contact: '', email: '', address: '' });
+      setForm({ name: '', gender: 'Male', blood_group: 'O+', contact: '', email: '', address: '', username: '', password: '' });
     } finally { setSaving(false); }
   };
 
@@ -244,6 +244,14 @@ function PatientManagement({ patients, setPatients }: { patients: any[]; setPati
                   onChange={e => setForm({ ...form, [f.key]: e.target.value })} />
               </div>
             ))}
+            <div>
+              <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Username *</label>
+              <input className="input-field" required value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Password *</label>
+              <input className="input-field" type="password" required value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
+            </div>
             <div>
               <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Gender</label>
               <select className="input-field" value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value })}>
@@ -294,13 +302,67 @@ function PatientManagement({ patients, setPatients }: { patients: any[]; setPati
   );
 }
 
-function DoctorManagement({ doctors }: { doctors: any[] }) {
+function DoctorManagement({ doctors, setDoctors }: { doctors: any[]; setDoctors: any }) {
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: '', specialization: 'General Medicine', contact: '', email: '', consultation_fee: 500, username: '', password: '' });
+  const [saving, setSaving] = useState(false);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await api.post('/doctors/', form);
+      setDoctors([...doctors, res.data]);
+      setShowForm(false);
+      setForm({ name: '', specialization: 'General Medicine', contact: '', email: '', consultation_fee: 500, username: '', password: '' });
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Error creating doctor');
+    } finally { setSaving(false); }
+  };
+
   return (
     <div className="animate-slide-up">
-      <div style={{ marginBottom: '1rem' }}>
-        <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f1f5f9' }}>Doctor Management</h1>
-        <p style={{ color: '#6b7280', fontSize: '0.8rem' }}>{doctors.length} active doctors</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f1f5f9' }}>Doctor Management</h1>
+          <p style={{ color: '#6b7280', fontSize: '0.8rem' }}>{doctors.length} active doctors</p>
+        </div>
+        <button className="btn-primary" onClick={() => setShowForm(!showForm)}>+ Add Doctor</button>
       </div>
+
+      {showForm && (
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#e2e8f0', marginBottom: '1rem' }}>New Doctor Registration</div>
+          <form onSubmit={handleAdd} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            {[
+              { key: 'name', label: 'Doctor Name', required: true },
+              { key: 'specialization', label: 'Specialization', required: true },
+              { key: 'email', label: 'Email' },
+              { key: 'contact', label: 'Phone' },
+              { key: 'consultation_fee', label: 'Consultation Fee (₹)', type: 'number' },
+            ].map(f => (
+              <div key={f.key}>
+                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>{f.label}</label>
+                <input className="input-field" type={f.type || 'text'} value={(form as any)[f.key]} required={f.required}
+                  onChange={e => setForm({ ...form, [f.key]: f.type === 'number' ? parseFloat(e.target.value) : e.target.value })} />
+              </div>
+            ))}
+            <div>
+              <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Username *</label>
+              <input className="input-field" required value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.3rem', fontWeight: 600 }}>Password *</label>
+              <input className="input-field" type="password" required value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
+            </div>
+            <div style={{ gridColumn: '1/-1', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
+              <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Saving...' : 'Add Doctor'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
         {doctors.map((d: any) => (
           <div key={d.doctor_id} className="card glass-hover">
@@ -312,7 +374,6 @@ function DoctorManagement({ doctors }: { doctors: any[] }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, color: '#e2e8f0', fontSize: '0.9rem' }}>{d.name}</div>
                 <div style={{ color: '#06b6d4', fontSize: '0.75rem', fontWeight: 600 }}>{d.specialization}</div>
-                <div style={{ color: '#4b5563', fontSize: '0.75rem' }}>{d.department}</div>
               </div>
               <span className={d.available ? 'badge-success' : 'badge-danger'}
                 style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', borderRadius: 4, whiteSpace: 'nowrap' }}>
@@ -322,7 +383,7 @@ function DoctorManagement({ doctors }: { doctors: any[] }) {
             <div style={{ marginTop: '0.875rem', padding: '0.625rem', background: '#0a0f1e', borderRadius: 8,
               fontSize: '0.75rem', color: '#6b7280', display: 'flex', justifyContent: 'space-between' }}>
               <span>Fee: <span style={{ color: '#10b981', fontWeight: 600 }}>₹{d.consultation_fee}</span></span>
-              <span>{d.qualification}</span>
+              <span>ID: #{d.doctor_id}</span>
             </div>
           </div>
         ))}

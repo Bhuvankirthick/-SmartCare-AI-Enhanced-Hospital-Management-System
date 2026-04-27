@@ -4,6 +4,8 @@ from ..database import get_db
 from ..schemas.doctor import DoctorCreate, DoctorUpdate, DoctorOut
 from ..schemas.auth import UserOut
 from ..auth.rbac import require_admin, get_current_user
+from ..auth.password import hash_password
+
 
 router = APIRouter(prefix="/doctors", tags=["Doctors"])
 
@@ -42,6 +44,18 @@ def create_doctor(
             values,
         )
         doctor = cursor.fetchone()
+        
+        # Create corresponding user entry linked to this doctor
+        hashed_pw = hash_password(body.password)
+        user_columns = ["username", "email", "password", "role", "linked_id"]
+        user_values = [body.username, body.email, hashed_pw, "doctor", doctor["doctor_id"]]
+        user_placeholders = ", ".join(["%s"] * len(user_columns))
+        user_cols_str = ", ".join(user_columns)
+        cursor.execute(
+            f"INSERT INTO users ({user_cols_str}) VALUES ({user_placeholders})",
+            user_values,
+        )
+        
         db.commit()
         return DoctorOut(**doctor)
     except Exception as e:
